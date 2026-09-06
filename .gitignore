@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+node_modules/
+dist/
+.DS_Store
+*.log
+.pytest_cache/
+
+# backend/data/congress_trades.db IS committed on purpose: GitHub Actions
+# refreshes it periodically and it doubles as the free-tier "database" when
+# deployed (see README). Ignore any other stray sqlite files only.
+*.sqlite3
+backend/data/*.db-journal
