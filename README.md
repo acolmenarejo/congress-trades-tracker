@@ -10,13 +10,16 @@ disclosures): API + web + ranking de mejores traders + bot de alertas Telegram.
 
 | Fuente | Estado | Notas |
 |---|---|---|
-| House (Cámara) | ✅ En vivo | El proyecto original `housestockwatcher.com` está caído (DNS no resuelve). Usamos el mirror activo [TattooedHead/house-stock-watcher-data](https://github.com/TattooedHead/house-stock-watcher-data), que publica el mismo formato JSON y se actualiza con filings reales y recientes. |
-| Senate | ⚠️ Solo histórico (hasta marzo 2021) | [timothycarambat/senate-stock-watcher-data](https://github.com/timothycarambat/senate-stock-watcher-data) dejó de actualizarse en 2021. `efdsearch.senate.gov` (fuente oficial) bloquea tráfico no-navegador vía Akamai desde IPs de datacenter/CI, así que no se scrapea directamente. El código intenta además "reports" diarios recientes del mismo repo (`fetch_recent_daily_reports`) por si el scraping original se reanuda algún día — no cuesta nada extra si no hay archivos nuevos. |
-| CongressInvests.com | ⚠️ Implementado pero no verificado | Agregador gratuito de ambas cámaras (100 req/día, sin key) mencionado en el encargo. Desde este entorno de desarrollo el host da timeout de conexión (posible bloqueo de red del sandbox, no necesariamente el servicio caído). El adaptor está listo (`backend/ingestion/sources/congress_invests.py`) y falla de forma segura (log + lista vacía) si no responde. Puede que sí funcione desde GitHub Actions/Railway — probar ahí. |
+| Financial Modeling Prep (`fmp_congress`) | ✅ En vivo, Senado + Cámara | Requiere `FMP_API_KEY` gratuita ([registro](https://site.financialmodelingprep.com/register), plan Basic). Free tier: 250 req/día, pero el parámetro `page` queda fijo en `0` → solo trae los ~100 disclosures más recientes por cámara. Perfecto como fuente "en vivo": cada corrida trae lo último y el dedup por `unique_id` hace inofensivo repetir. Incluye `disclosure_date` real y bioguide id. |
+| House (Cámara), `house_stock_watcher` | ✅ En vivo (backfill histórico) | El proyecto original `housestockwatcher.com` está caído (DNS no resuelve). Usamos el mirror activo [TattooedHead/house-stock-watcher-data](https://github.com/TattooedHead/house-stock-watcher-data), que publica el mismo formato JSON y da profundidad histórica completa (FMP solo cubre lo reciente). |
+| Senate, `senate_stock_watcher` | ⚠️ Solo histórico (hasta marzo 2021) | [timothycarambat/senate-stock-watcher-data](https://github.com/timothycarambat/senate-stock-watcher-data) dejó de actualizarse en 2021. `efdsearch.senate.gov` (fuente oficial) bloquea tráfico no-navegador vía Akamai desde IPs de datacenter/CI, así que no se scrapea directamente. Cubre el histórico 2012-2021; FMP cubre lo reciente — entre ambos no hay hueco grande. |
+| CongressInvests.com | ⚠️ Implementado pero endpoint sin confirmar | Agregador gratuito de ambas cámaras (100 req/día, sin key) mencionado en el encargo. En pruebas dio timeout de conexión (servicio caído en ese momento) y luego 404 en `/api/trades` (endpoint real no documentado públicamente). Con FMP cubriendo ya el hueco de "Senado en vivo", queda como fuente extra de bajo esfuerzo — el adaptador falla de forma segura si no responde. |
 
-El pipeline combina las tres fuentes, deduplicando por un `unique_id` calculado
+El pipeline combina las cuatro fuentes, deduplicando por un `unique_id` calculado
 a partir de miembro normalizado + cámara + ticker + tipo + fecha + importe, así
 que si una fuente falla o dos coinciden en el mismo trade no se duplica nada.
+`fmp_congress` corre primero (fuente más fresca y con bioguide id), y las demás
+solo rellenan huecos o añaden profundidad histórica.
 
 ## Estructura del repo
 
@@ -38,6 +41,8 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # Linux/Mac
 pip install -r requirements.txt
+
+cp .env.example .env   # y rellena FMP_API_KEY (gratis, ver tabla de fuentes arriba)
 
 # Ingesta inicial (tarda ~1-2 min, trae datos reales)
 cd ingestion
@@ -62,7 +67,9 @@ Endpoints disponibles:
 
 `.github/workflows/ingest.yml` corre `fetch_trades.py` cada 6 horas en GitHub
 Actions y commitea `backend/data/congress_trades.db` de vuelta al repo. Es
-idempotente: correrlo muchas veces no duplica filas.
+idempotente: correrlo muchas veces no duplica filas. Cuando conectes el repo a
+GitHub, añade el secret `FMP_API_KEY` en Settings → Secrets and variables →
+Actions para que el cron también traiga datos en vivo.
 
 ## Despliegue gratuito (pendiente de activar)
 

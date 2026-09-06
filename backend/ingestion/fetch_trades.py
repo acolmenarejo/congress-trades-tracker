@@ -14,16 +14,31 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+except ImportError:
+    pass
+
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import Member, Trade  # noqa: E402
 
 from ingestion import normalize  # noqa: E402
-from ingestion.sources import congress_invests, house_stock_watcher, senate_stock_watcher  # noqa: E402
+from ingestion.sources import (  # noqa: E402
+    congress_invests,
+    fmp_congress,
+    house_stock_watcher,
+    senate_stock_watcher,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("fetch_trades")
 
-SOURCES = [house_stock_watcher, senate_stock_watcher, congress_invests]
+# fmp_congress first: it's the freshest/live source (with bioguide ids), so it
+# "wins" as the base row for recent trades. The historical mirrors only add
+# older trades / fill gaps, they don't overwrite what fmp_congress already set.
+SOURCES = [fmp_congress, house_stock_watcher, senate_stock_watcher, congress_invests]
 
 
 def normalize_row(raw: dict) -> dict | None:
@@ -75,6 +90,7 @@ def normalize_row(raw: dict) -> dict | None:
         "source": raw.get("source"),
         "filing_url": raw.get("filing_url"),
         "district": raw.get("district"),
+        "bioguide_id": raw.get("bioguide_id"),
     }
 
 
@@ -91,6 +107,7 @@ def upsert_member(db, row: dict, member_cache: dict) -> None:
             party=row["party"],
             state=row["state"],
             district=row.get("district"),
+            bioguide_id=row.get("bioguide_id"),
         )
         db.add(member)
         member_cache[match_key] = member
@@ -105,6 +122,8 @@ def upsert_member(db, row: dict, member_cache: dict) -> None:
             member.state = row["state"]
         if row.get("district") and not member.district:
             member.district = row["district"]
+        if row.get("bioguide_id") and not member.bioguide_id:
+            member.bioguide_id = row["bioguide_id"]
         if len(row["member_name"]) > len(member.name or ""):
             member.name = row["member_name"]
 
@@ -117,7 +136,7 @@ def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
         existing = db.query(Trade).filter_by(unique_id=unique_id).one_or_none()
 
     if existing is None:
-        trade_fields = {k: v for k, v in row.items() if k != "district"}
+        trade_fields = {k: v for k, v in row.items() if k not in ("district", "bioguide_id")}
         trade = Trade(**trade_fields)
         db.add(trade)
         trade_cache[unique_id] = trade

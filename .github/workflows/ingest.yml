@@ -25,6 +25,8 @@ jobs:
 
       - name: Run ingestion
         working-directory: backend/ingestion
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python fetch_trades.py
 
       - name: Commit updated database
