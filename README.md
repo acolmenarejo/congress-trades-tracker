@@ -184,14 +184,17 @@ Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settin
 - **Bot Telegram + ingesta + ranking**: ya corren solos en GitHub Actions
   (ver arriba), no necesitan ningún servicio adicional.
 - **Frontend**: desplegado en Netlify — https://congress-trades-tracker.netlify.app
-  (`netlify.toml` en la raíz, build de `frontend/`). **Pendiente**: hacer el
-  sitio público (quedó en "Private" bajo el visitor access del plan de prueba
-  de la cuenta Netlify — Site configuration → Visitor access → marcar
-  "Public"). Intenté meter el backend también como Netlify Function en Python
-  para no depender de otro servicio, pero **esta versión de Netlify no soporta
-  funciones en Python** (solo Node/Go/Rust o Edge Functions en Deno) — lo
-  confirmé con `netlify functions:create --language python`, que falla con
-  "Invalid language: python". Se descartó esa vía.
+  (`netlify.toml` en la raíz, build de `frontend/`). Ya público (Site
+  configuration → Visitor access → "Public"). El sitio **no** está conectado
+  al repo de GitHub todavía (se creó y desplegó vía `netlify` CLI) — cada
+  cambio requiere `netlify deploy --prod` manual; conectar el repo desde
+  Netlify (Site settings → Build & deploy → Link repository) daría deploys
+  automáticos en cada push, pendiente de hacer. Intenté meter el backend
+  también como Netlify Function en Python para no depender de otro servicio,
+  pero **esta versión de Netlify no soporta funciones en Python** (solo
+  Node/Go/Rust o Edge Functions en Deno) — lo confirmé con
+  `netlify functions:create --language python`, que falla con "Invalid
+  language: python". Se descartó esa vía.
 - **Backend**: aún sin desplegar en ningún sitio público — el frontend en
   Netlify no podrá cargar datos hasta que esto se resuelva. Como la DB se
   commitea al repo vía Actions, no hace falta un volumen persistente de pago
