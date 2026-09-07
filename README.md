@@ -3,8 +3,15 @@
 Sigue las transacciones de bolsa de los miembros del Congreso de EEUU (STOCK Act
 disclosures): API + web + ranking de mejores traders + bot de alertas Telegram.
 
-**Estado actual: Fase 1 completa (backend + ingesta + API).** Fases 2-4
-(frontend, ranking con yfinance, bot Telegram) en construcción.
+**Estado actual: Fase 1 (backend + ingesta + API) y Fase 4 (bot Telegram) completas.**
+Fases 2-3 (frontend, ranking con yfinance) en construcción.
+
+⚠️ **Importante sobre el bot**: ningún sistema —este incluido— puede avisarte
+*antes* de que el congresista publique su disclosure. La Ley STOCK permite hasta
+45 días de retraso legal. Lo que este bot sí hace es avisarte en cuanto el
+filing se hace público, cosa que muchas veces sigue dejando margen de reacción
+real (ver ejemplo Pelosi/BE en el historial del proyecto: disclosure a 24-28
+días del trade, y la acción siguió subiendo con fuerza semanas después).
 
 ## Fuentes de datos
 
@@ -29,8 +36,10 @@ backend/
   ingestion/      # fetch_trades.py + adaptadores por fuente + normalización
   data/           # congress_trades.db (SQLite, se commitea vía GitHub Actions)
 frontend/         # (Fase 2)
-bot/              # (Fase 4)
-.github/workflows/ingest.yml  # cron cada 6h que corre la ingesta y commitea la DB
+bot/              # Bot de Telegram: comandos + alertas (Fase 4)
+.github/workflows/
+  ingest.yml      # cron cada 6h: ingesta + alertas de trades nuevos + commit de la DB
+  bot-poll.yml    # cron cada 5 min: procesa comandos pendientes del bot (/watch, /list...)
 ```
 
 ## Backend — instalación local
@@ -71,6 +80,39 @@ idempotente: correrlo muchas veces no duplica filas. Cuando conectes el repo a
 GitHub, añade el secret `FMP_API_KEY` en Settings → Secrets and variables →
 Actions para que el cron también traiga datos en vivo.
 
+## Bot de Telegram
+
+Bot: **@CongressCalls_bot**. Llamadas directas a la Bot API (sin librería),
+como pedía el encargo.
+
+```bash
+cd bot
+python -m venv .venv   # o reutiliza backend/.venv, comparte las mismas deps + sqlalchemy
+.venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env   # y rellena TELEGRAM_BOT_TOKEN (@BotFather -> /newbot)
+
+python commands.py     # procesa mensajes pendientes una vez (esto es lo que corre el cron)
+python notify.py       # envía alertas de trades nuevos no notificados aún
+python poll_loop.py    # SOLO para desarrollo: repite commands.py cada 5s
+```
+
+Comandos disponibles (por chat, cada usuario tiene su propia lista):
+
+- `/start` — se suscribe y arranca con la lista por defecto (Pelosi, Gottheimer, Khanna, Crenshaw, Mullin)
+- `/watch NOMBRE` / `/unwatch NOMBRE`
+- `/watchticker TICKER` / `/unwatchticker TICKER`
+- `/list`
+
+Arquitectura pensada para free tier: nada corre 24/7. `bot-poll.yml` (cron cada
+5 min) procesa mensajes pendientes vía `getUpdates` con offset persistido en
+SQLite (tabla `telegram_state`), e `ingest.yml` llama a `notify.py` justo
+después de cada ingesta para avisar de trades nuevos que coincidan con algún
+watch. El flag `Trade.notified` evita reenvíos si algo falla a mitad de proceso.
+
+Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settings
+→ Secrets and variables → Actions), igual que `FMP_API_KEY`.
+
 ## Despliegue gratuito (pendiente de activar)
 
 Documentado aquí para cuando tengas cuentas creadas — de momento todo corre en
@@ -80,12 +122,12 @@ local:
   Actions, no hace falta un volumen persistente de pago: en cada deploy se
   parte del `.db` más reciente del repo.
 - **Frontend**: Vercel (free tier), Fase 2.
-- **Bot Telegram**: puede correr como job dentro del mismo cron de GitHub
-  Actions, o como proceso separado en Railway/Fly, Fase 4.
+- **Bot Telegram**: ya corre gratis vía GitHub Actions (ver arriba), no
+  necesita ningún servicio adicional.
 
 ## Backlog (ideas extra del encargo, no implementadas aún)
 
-- Digest diario/semanal por Telegram
+- Digest diario/semanal por Telegram (ahora mismo solo hay alertas instantáneas)
 - Ranking de "peor cumplimiento" del plazo de 45 días del STOCK Act
 - Comparativa demócratas vs. republicanos
 - Simulador "qué hubiera pasado si copio a X"

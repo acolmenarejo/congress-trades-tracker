@@ -1,16 +1,17 @@
-name: Ingest congress trades
+name: Poll Telegram bot commands
 
 on:
   schedule:
-    # Every 6 hours. STOCK Act disclosures don't arrive faster than that in practice.
-    - cron: "17 */6 * * *"
+    # GitHub Actions' minimum cron granularity is 5 minutes, and actual
+    # firing can lag a bit under load — good enough for a free bot.
+    - cron: "*/5 * * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
 jobs:
-  ingest:
+  poll:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,22 +25,16 @@ jobs:
           pip install -r backend/requirements.txt
           pip install -r bot/requirements.txt
 
-      - name: Run ingestion
-        working-directory: backend/ingestion
-        env:
-          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
-        run: python fetch_trades.py
-
-      - name: Send Telegram alerts for new trades
+      - name: Process pending Telegram commands
         working-directory: bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python notify.py
+        run: python commands.py
 
       - name: Commit updated database
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add backend/data/congress_trades.db
-          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: refresh trades data [skip ci]"
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: bot subscriptions update [skip ci]"
           git push

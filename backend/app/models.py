@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Index, func
+from sqlalchemy import Boolean, Column, Integer, String, Float, Date, DateTime, Index, func
 
 from .database import Base
 
@@ -49,6 +49,8 @@ class Trade(Base):
     source = Column(String, nullable=False)  # house_stock_watcher | senate_stock_watcher | congress_invests
     filing_url = Column(String, nullable=True)
 
+    notified = Column(Boolean, nullable=False, default=False, server_default="0")
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -72,3 +74,36 @@ class MemberRanking(Base):
     alpha_vs_sp500_pct = Column(Float, nullable=True)
     avg_disclosure_lag_days = Column(Float, nullable=True)
     last_calculated = Column(DateTime, nullable=True)
+
+
+class TelegramSubscriber(Base):
+    __tablename__ = "telegram_subscribers"
+
+    chat_id = Column(Integer, primary_key=True)
+    username = Column(String, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class TelegramWatch(Base):
+    """A subscriber watching either a member (by match_key) or a ticker."""
+
+    __tablename__ = "telegram_watches"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(Integer, index=True, nullable=False)
+    watch_type = Column(String, nullable=False)  # "member" | "ticker"
+    value = Column(String, nullable=False)  # member match_key, or ticker symbol
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_watch_unique", "chat_id", "watch_type", "value", unique=True),
+    )
+
+
+class TelegramState(Base):
+    """Tiny key-value store, e.g. the last processed Telegram update_id."""
+
+    __tablename__ = "telegram_state"
+
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=True)
