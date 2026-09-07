@@ -38,3 +38,4 @@ jobs:
           git add backend/data/congress_trades.db
           git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: bot subscriptions update [skip ci]"
           git push
+  
