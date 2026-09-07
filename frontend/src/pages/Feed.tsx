@@ -115,7 +115,11 @@ export default function Feed() {
                 <td className="px-3 py-2 text-slate-500 dark:text-slate-400">
                   {t.chamber === "house" ? "Cámara" : t.chamber === "senate" ? "Senado" : "—"}
                 </td>
-                <td className="px-3 py-2 font-medium">{t.ticker}</td>
+                <td className="px-3 py-2 font-medium">
+                  <Link to={`/tickers/${t.ticker}`} className="hover:underline">
+                    ${t.ticker}
+                  </Link>
+                </td>
                 <td className="px-3 py-2">
                   {t.transaction_type === "purchase" ? "Compra" : t.transaction_type === "sale" ? "Venta" : t.transaction_type}
                 </td>

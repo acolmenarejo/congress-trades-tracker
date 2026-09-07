@@ -90,3 +90,8 @@ def get_ticker(ticker: str, db: Session = Depends(get_db)):
     if summary["trade_count"] == 0:
         raise HTTPException(status_code=404, detail="No trades found for ticker")
     return summary
+
+
+@app.get("/tickers/{ticker}/prices")
+def get_ticker_prices(ticker: str, days: int = Query(180, le=1825), db: Session = Depends(get_db)):
+    return crud.get_ticker_prices(db, ticker, days=days)

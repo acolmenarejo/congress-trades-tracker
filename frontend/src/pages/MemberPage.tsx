@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api, type Member, type Trade } from "../lib/api";
 import { formatAmountRange, formatDate } from "../lib/format";
 
@@ -51,7 +51,10 @@ export default function MemberPage() {
             <li key={t.id} className="flex items-center justify-between p-3 text-sm">
               <div>
                 <span className="font-medium">
-                  {t.transaction_type === "purchase" ? "Compró" : "Vendió"} ${t.ticker}
+                  {t.transaction_type === "purchase" ? "Compró" : "Vendió"}{" "}
+                  <Link to={`/tickers/${t.ticker}`} className="hover:underline">
+                    ${t.ticker}
+                  </Link>
                 </span>
                 {t.asset_name && (
                   <span className="text-slate-500 dark:text-slate-400"> — {t.asset_name}</span>

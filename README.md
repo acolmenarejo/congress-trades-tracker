@@ -3,13 +3,16 @@
 Sigue las transacciones de bolsa de los miembros del Congreso de EEUU (STOCK Act
 disclosures): API + web + ranking de mejores traders + bot de alertas Telegram.
 
-**Estado actual: Fases 1, 2 y 4 completas** (backend + ingesta + API, frontend,
-bot Telegram — este último corriendo 24/7 gratis en GitHub Actions). **Fase 3**
-(ranking con retorno estimado vía yfinance) pendiente — la pantalla de Ranking
-ya existe pero está vacía hasta que ese cálculo corra.
+**Estado actual: Fases 1, 2, 3 y 4 completas.** Backend + ingesta + API,
+frontend (dashboard, feed, ranking, página de miembro, página de ticker con
+velas), ranking con retorno estimado real, y bot de Telegram — bot + ingesta +
+ranking corriendo 24/7 gratis en GitHub Actions.
 
-**Repo en producción**: https://github.com/acolmenarejo/congress-trades-tracker
-(público, para minutos de GitHub Actions ilimitados gratis).
+**Repo**: https://github.com/acolmenarejo/congress-trades-tracker (público,
+para minutos de GitHub Actions ilimitados gratis).
+**Frontend**: https://congress-trades-tracker.netlify.app — el backend
+todavía no está desplegado en ningún sitio público (ver sección de Despliegue),
+así que el sitio en vivo no podrá cargar datos hasta que eso se resuelva.
 
 ⚠️ **Importante sobre el bot**: ningún sistema —este incluido— puede avisarte
 *antes* de que el congresista publique su disclosure. La Ley STOCK permite hasta
@@ -72,10 +75,48 @@ Endpoints disponibles:
 - `GET /health`
 - `GET /kpis` — totales globales
 - `GET /trades?member=&ticker=&chamber=&party=&transaction_type=&date_from=&date_to=&limit=&offset=`
-- `GET /members/ranking?sort_by=&limit=` (vacío hasta Fase 3)
+- `GET /members/ranking?sort_by=&limit=` — `sort_by` acepta `total_return_pct`,
+  `annualized_return_pct`, `alpha_vs_sp500_pct`, `volume_estimate`,
+  `trade_count`, `win_rate_pct` o `avg_disclosure_lag_days` (ranking de "peor
+  cumplimiento" del plazo de 45 días de la Ley STOCK — mayor retraso primero)
 - `GET /members/{match_key}`
 - `GET /members/{match_key}/trades`
-- `GET /tickers/{ticker}`
+- `GET /tickers/{ticker}` — incluye la tabla de operaciones (comprador, fecha, importe)
+- `GET /tickers/{ticker}/prices?days=` — histórico OHLC diario para el gráfico de velas
+
+## Ranking de mejores traders (Fase 3)
+
+`backend/ranking/calculate_rankings.py` recalcula el ranking una vez al día
+(`.github/workflows/rankings.yml`, cron diario — es el job más lento, una
+llamada a Yahoo Finance por ticker, con caché en `price_cache`). Metodología:
+
+- Para cada compra de una acción normal, se emparejan con la venta posterior
+  más próxima del mismo miembro+ticker (FIFO). Si no hay venta, se usa el
+  precio actual ("todavía en cartera").
+- Retorno de cada trade = `(precio_salida / precio_entrada - 1)`, ponderado
+  por el importe medio del trade.
+- `alpha_vs_sp500_pct` = el mismo cálculo pero restando el retorno de SPY en
+  la misma ventana de fechas.
+- Solo se consideran trades de los últimos 2 años (`RANKING_LOOKBACK_DAYS`)
+  — el histórico de Senado 2012-2021 multiplicaría muchísimo el número de
+  tickers a consultar en Yahoo por poco valor de ranking real; se puede subir
+  ese número si en algún momento interesa un ranking "histórico total".
+- Precios vía la chart API de Yahoo Finance directamente (con User-Agent de
+  navegador) en vez de la librería `yfinance`, que daba 429 en pruebas.
+
+**Extra no pedido explícitamente pero incluido**: la misma tabla sirve como
+ranking de "peor cumplimiento" del plazo de 45 días de la Ley STOCK
+(`avg_disclosure_lag_days`) — ángulo periodístico interesante que estaba en
+el backlog original. En el frontend, cualquier miembro por encima de 45 días
+se resalta en rojo.
+
+## Ticker page (velas + compradores)
+
+`/tickers/{TICKER}` en el frontend: gráfico de velas (OHLC diario, sin
+librería externa — un `<Bar>` de Recharts con `shape` custom dibuja mecha +
+cuerpo) con triángulos verdes/rojos incrustados en la fecha de cada compra/venta
+del Congreso, más la tabla de operaciones (miembro, tipo, importe, fecha)
+enlazada desde el Feed y desde la página de cada miembro.
 
 ## Frontend — instalación local
 
@@ -88,12 +129,14 @@ npm run dev   # http://localhost:5173, con proxy /api -> backend en :8000
 ```
 
 Páginas: Dashboard (KPIs + gráficos), Feed (tabla filtrable), Ranking
-(ordenable, vacío hasta Fase 3), página de miembro (timeline de trades).
-Modo oscuro con toggle persistido en `localStorage`. El backend debe estar
-corriendo en `:8000` para que el proxy de Vite funcione.
+(ordenable, con datos reales), página de miembro (timeline de trades), página
+de ticker (velas + tabla de compradores). Modo oscuro con toggle persistido en
+`localStorage`. El backend debe estar corriendo en `:8000` para que el proxy
+de Vite funcione (o define `VITE_API_BASE` para apuntar a un backend remoto).
 
-Pendiente para cuando llegue Fase 3: gráfico de rendimiento simulado vs S&P
-500 en la página de miembro, heatmap de actividad por sector.
+Pendiente: gráfico de rendimiento simulado vs S&P 500 en la página de
+miembro (simulador "qué hubiera pasado si copio a X"), heatmap de actividad
+por sector.
 
 ## Ingesta periódica (gratis)
 
@@ -136,27 +179,33 @@ watch. El flag `Trade.notified` evita reenvíos si algo falla a mitad de proceso
 Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settings
 → Secrets and variables → Actions), igual que `FMP_API_KEY`.
 
-## Despliegue gratuito (backend/frontend pendientes de activar)
+## Despliegue gratuito
 
-El bot y la ingesta ya corren solos en GitHub Actions (ver arriba). Backend
-web y frontend siguen en local — esto es lo que falta activar cuando quieras:
-
-- **Backend**: Railway o Fly.io (free tier). Como la DB se commitea al repo vía
-  Actions, no hace falta un volumen persistente de pago: en cada deploy se
-  parte del `.db` más reciente del repo.
-- **Frontend**: Vercel (free tier). El proxy `/api` de `vite.config.ts` es solo
-  para desarrollo local — en producción hay que apuntar `frontend/src/lib/api.ts`
-  a la URL pública del backend (variable de entorno `VITE_API_BASE`, aún sin
-  añadir) en vez de al proxy.
-- **Bot Telegram**: ya corre gratis vía GitHub Actions (ver arriba), no
-  necesita ningún servicio adicional.
+- **Bot Telegram + ingesta + ranking**: ya corren solos en GitHub Actions
+  (ver arriba), no necesitan ningún servicio adicional.
+- **Frontend**: desplegado en Netlify — https://congress-trades-tracker.netlify.app
+  (`netlify.toml` en la raíz, build de `frontend/`). **Pendiente**: hacer el
+  sitio público (quedó en "Private" bajo el visitor access del plan de prueba
+  de la cuenta Netlify — Site configuration → Visitor access → marcar
+  "Public"). Intenté meter el backend también como Netlify Function en Python
+  para no depender de otro servicio, pero **esta versión de Netlify no soporta
+  funciones en Python** (solo Node/Go/Rust o Edge Functions en Deno) — lo
+  confirmé con `netlify functions:create --language python`, que falla con
+  "Invalid language: python". Se descartó esa vía.
+- **Backend**: aún sin desplegar en ningún sitio público — el frontend en
+  Netlify no podrá cargar datos hasta que esto se resuelva. Como la DB se
+  commitea al repo vía Actions, no hace falta un volumen persistente de pago
+  en ningún proveedor: en cada deploy se parte del `.db` más reciente del
+  repo. Opciones gratuitas típicas: Render (free tier, sin tarjeta) o Railway
+  (trial). Una vez desplegado, configura `VITE_API_BASE` en Netlify con la URL
+  pública y vuelve a desplegar el frontend.
 
 ## Backlog (ideas extra del encargo, no implementadas aún)
 
 - Digest diario/semanal por Telegram (ahora mismo solo hay alertas instantáneas)
-- Ranking de "peor cumplimiento" del plazo de 45 días del STOCK Act
-- Comparativa demócratas vs. republicanos
-- Simulador "qué hubiera pasado si copio a X"
+- Comparativa demócratas vs. republicanos más allá del gráfico compra/venta del dashboard
+- Simulador "qué hubiera pasado si copio a X" (cartera virtual con evolución)
 - Detección de trades inusuales cruzando calendario legislativo
 - Webhook genérico (Discord/email) además de Telegram
-- API pública de solo lectura
+- API pública de solo lectura documentada
+- Heatmap de actividad por sector/ticker

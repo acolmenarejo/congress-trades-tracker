@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Feed from "./pages/Feed";
 import Ranking from "./pages/Ranking";
 import MemberPage from "./pages/MemberPage";
+import TickerPage from "./pages/TickerPage";
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="feed" element={<Feed />} />
         <Route path="ranking" element={<Ranking />} />
         <Route path="members/:matchKey" element={<MemberPage />} />
+        <Route path="tickers/:ticker" element={<TickerPage />} />
       </Route>
     </Routes>
   );

@@ -10,6 +10,7 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "volume_estimate", label: "Volumen operado" },
   { value: "trade_count", label: "Nº de trades" },
   { value: "win_rate_pct", label: "Ratio de aciertos" },
+  { value: "avg_disclosure_lag_days", label: "⚠️ Peor cumplimiento (retraso disclosure)" },
 ];
 
 export default function Ranking() {
@@ -57,6 +58,7 @@ export default function Ranking() {
                 <th className="px-3 py-2">Anualizado</th>
                 <th className="px-3 py-2">Alpha vs S&P 500</th>
                 <th className="px-3 py-2">Aciertos</th>
+                <th className="px-3 py-2">Retraso disclosure</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -77,6 +79,20 @@ export default function Ranking() {
                   <td className="px-3 py-2">{formatPct(r.annualized_return_pct)}</td>
                   <td className="px-3 py-2">{formatPct(r.alpha_vs_sp500_pct)}</td>
                   <td className="px-3 py-2">{formatPct(r.win_rate_pct)}</td>
+                  <td
+                    className={`px-3 py-2 ${
+                      r.avg_disclosure_lag_days !== null && r.avg_disclosure_lag_days > 45
+                        ? "font-medium text-red-600 dark:text-red-400"
+                        : ""
+                    }`}
+                    title={
+                      r.avg_disclosure_lag_days !== null && r.avg_disclosure_lag_days > 45
+                        ? "Por encima del límite legal de 45 días de la Ley STOCK"
+                        : undefined
+                    }
+                  >
+                    {r.avg_disclosure_lag_days !== null ? `${r.avg_disclosure_lag_days.toFixed(0)}d` : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -76,6 +76,22 @@ class MemberRanking(Base):
     last_calculated = Column(DateTime, nullable=True)
 
 
+class PriceCache(Base):
+    """Daily close prices, fetched once and reused across ranking runs and the
+    ticker candlestick endpoint. Avoids re-hitting Yahoo Finance for the same
+    ticker/date on every run."""
+
+    __tablename__ = "price_cache"
+
+    ticker = Column(String, primary_key=True)
+    date = Column(Date, primary_key=True)
+    open = Column(Float, nullable=True)
+    high = Column(Float, nullable=True)
+    low = Column(Float, nullable=True)
+    close = Column(Float, nullable=True)
+    volume = Column(Float, nullable=True)
+
+
 class TelegramSubscriber(Base):
     __tablename__ = "telegram_subscribers"
 

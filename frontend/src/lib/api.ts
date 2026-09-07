@@ -1,4 +1,6 @@
-const BASE = "/api";
+// In dev, Vite proxies /api to the local backend (see vite.config.ts). In
+// production, set VITE_API_BASE to the deployed backend's public URL.
+const BASE = import.meta.env.VITE_API_BASE || "/api";
 
 export interface Trade {
   id: number;
@@ -62,6 +64,15 @@ export interface MemberRanking {
   last_calculated: string | null;
 }
 
+export interface PricePoint {
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
+}
+
 export interface TickerSummary {
   ticker: string;
   trade_count: number;
@@ -113,4 +124,6 @@ export const api = {
   memberTrades: (matchKey: string, limit = 500) =>
     getJSON<Trade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),
+  tickerPrices: (ticker: string, days = 180) =>
+    getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
 };

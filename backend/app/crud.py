@@ -92,6 +92,7 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
         "trade_count",
         "win_rate_pct",
         "alpha_vs_sp500_pct",
+        "avg_disclosure_lag_days",  # "worst compliance" ranking: highest lag first
     }
     if sort_by not in valid_sorts:
         sort_by = "total_return_pct"
@@ -124,6 +125,26 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
             }
         )
     return out
+
+
+def get_ticker_prices(db: Session, ticker: str, days: int = 180):
+    from datetime import date, timedelta
+
+    from ranking import prices
+
+    ticker = ticker.upper()
+    series = prices.get_price_series(db, ticker, date.today() - timedelta(days=days), date.today())
+    return [
+        {
+            "date": row["date"].isoformat(),
+            "open": row["open"],
+            "high": row["high"],
+            "low": row["low"],
+            "close": row["close"],
+            "volume": row["volume"],
+        }
+        for row in series
+    ]
 
 
 def global_kpis(db: Session):

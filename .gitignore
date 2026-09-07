@@ -14,3 +14,6 @@ dist/
 # deployed (see README). Ignore any other stray sqlite files only.
 *.sqlite3
 backend/data/*.db-journal
+
+# Local Netlify folder
+.netlify
