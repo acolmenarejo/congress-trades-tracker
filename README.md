@@ -3,8 +3,13 @@
 Sigue las transacciones de bolsa de los miembros del Congreso de EEUU (STOCK Act
 disclosures): API + web + ranking de mejores traders + bot de alertas Telegram.
 
-**Estado actual: Fase 1 (backend + ingesta + API) y Fase 4 (bot Telegram) completas.**
-Fases 2-3 (frontend, ranking con yfinance) en construcción.
+**Estado actual: Fases 1, 2 y 4 completas** (backend + ingesta + API, frontend,
+bot Telegram — este último corriendo 24/7 gratis en GitHub Actions). **Fase 3**
+(ranking con retorno estimado vía yfinance) pendiente — la pantalla de Ranking
+ya existe pero está vacía hasta que ese cálculo corra.
+
+**Repo en producción**: https://github.com/acolmenarejo/congress-trades-tracker
+(público, para minutos de GitHub Actions ilimitados gratis).
 
 ⚠️ **Importante sobre el bot**: ningún sistema —este incluido— puede avisarte
 *antes* de que el congresista publique su disclosure. La Ley STOCK permite hasta
@@ -72,6 +77,24 @@ Endpoints disponibles:
 - `GET /members/{match_key}/trades`
 - `GET /tickers/{ticker}`
 
+## Frontend — instalación local
+
+React + Vite + TypeScript + Tailwind v4 + Recharts + React Router.
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:5173, con proxy /api -> backend en :8000
+```
+
+Páginas: Dashboard (KPIs + gráficos), Feed (tabla filtrable), Ranking
+(ordenable, vacío hasta Fase 3), página de miembro (timeline de trades).
+Modo oscuro con toggle persistido en `localStorage`. El backend debe estar
+corriendo en `:8000` para que el proxy de Vite funcione.
+
+Pendiente para cuando llegue Fase 3: gráfico de rendimiento simulado vs S&P
+500 en la página de miembro, heatmap de actividad por sector.
+
 ## Ingesta periódica (gratis)
 
 `.github/workflows/ingest.yml` corre `fetch_trades.py` cada 6 horas en GitHub
@@ -113,15 +136,18 @@ watch. El flag `Trade.notified` evita reenvíos si algo falla a mitad de proceso
 Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settings
 → Secrets and variables → Actions), igual que `FMP_API_KEY`.
 
-## Despliegue gratuito (pendiente de activar)
+## Despliegue gratuito (backend/frontend pendientes de activar)
 
-Documentado aquí para cuando tengas cuentas creadas — de momento todo corre en
-local:
+El bot y la ingesta ya corren solos en GitHub Actions (ver arriba). Backend
+web y frontend siguen en local — esto es lo que falta activar cuando quieras:
 
 - **Backend**: Railway o Fly.io (free tier). Como la DB se commitea al repo vía
   Actions, no hace falta un volumen persistente de pago: en cada deploy se
   parte del `.db` más reciente del repo.
-- **Frontend**: Vercel (free tier), Fase 2.
+- **Frontend**: Vercel (free tier). El proxy `/api` de `vite.config.ts` es solo
+  para desarrollo local — en producción hay que apuntar `frontend/src/lib/api.ts`
+  a la URL pública del backend (variable de entorno `VITE_API_BASE`, aún sin
+  añadir) en vez de al proxy.
 - **Bot Telegram**: ya corre gratis vía GitHub Actions (ver arriba), no
   necesita ningún servicio adicional.
 

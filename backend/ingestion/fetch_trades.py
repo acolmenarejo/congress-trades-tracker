@@ -29,6 +29,7 @@ from ingestion.sources import (  # noqa: E402
     congress_invests,
     fmp_congress,
     house_stock_watcher,
+    legislators,
     senate_stock_watcher,
 )
 
@@ -77,7 +78,7 @@ def normalize_row(raw: dict) -> dict | None:
         "party": normalize.normalize_party(raw.get("party")),
         "state": raw.get("state"),
         "ticker": ticker,
-        "asset_name": raw.get("asset_name"),
+        "asset_name": normalize.clean_text(raw.get("asset_name")),
         "asset_type": raw.get("asset_type"),
         "transaction_type": transaction_type,
         "owner": raw.get("owner"),
@@ -108,6 +109,7 @@ def upsert_member(db, row: dict, member_cache: dict) -> None:
             state=row["state"],
             district=row.get("district"),
             bioguide_id=row.get("bioguide_id"),
+            committees=row.get("committees"),
         )
         db.add(member)
         member_cache[match_key] = member
@@ -124,8 +126,28 @@ def upsert_member(db, row: dict, member_cache: dict) -> None:
             member.district = row["district"]
         if row.get("bioguide_id") and not member.bioguide_id:
             member.bioguide_id = row["bioguide_id"]
+        if row.get("committees") and not member.committees:
+            member.committees = row["committees"]
         if len(row["member_name"]) > len(member.name or ""):
             member.name = row["member_name"]
+
+
+def apply_enrichment(row: dict, enrichment: dict) -> None:
+    """Fill party/state/chamber from the reference legislators dataset when a
+    trade source didn't provide them (party especially: none of the trade
+    feeds include it). Mutates `row` in place, before it becomes a Member/Trade."""
+    entry = enrichment["by_bioguide"].get(row.get("bioguide_id")) or enrichment[
+        "by_match_key"
+    ].get(row["member_match_key"])
+    if not entry:
+        return
+    if entry["party"] and not row.get("party"):
+        row["party"] = entry["party"]
+    if entry["state"] and not row.get("state"):
+        row["state"] = entry["state"]
+    if entry["chamber"] and not row.get("chamber"):
+        row["chamber"] = entry["chamber"]
+    row["committees"] = entry["committees"]
 
 
 def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
@@ -136,7 +158,7 @@ def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
         existing = db.query(Trade).filter_by(unique_id=unique_id).one_or_none()
 
     if existing is None:
-        trade_fields = {k: v for k, v in row.items() if k not in ("district", "bioguide_id")}
+        trade_fields = {k: v for k, v in row.items() if k not in ("district", "bioguide_id", "committees")}
         trade = Trade(**trade_fields)
         db.add(trade)
         trade_cache[unique_id] = trade
@@ -151,12 +173,54 @@ def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
     return False
 
 
+def backfill_enrichment(db, enrichment: dict) -> int:
+    """One-time-ish catch-up: apply party/state/chamber/committees to Members
+    and Trades already in the DB that predate this enrichment step (or whose
+    trades haven't been re-fetched since). Cheap: one UPDATE per known member,
+    only touching rows where the field is still NULL."""
+    updated = 0
+    all_entries = {**enrichment["by_match_key"]}
+    # Also index by match_key derived from any bioguide-keyed entry, in case a
+    # Member row only has a bioguide_id and no matching match_key entry.
+    for member in db.query(Member).all():
+        entry = enrichment["by_bioguide"].get(member.bioguide_id) or all_entries.get(member.match_key)
+        if not entry:
+            continue
+        changed = False
+        if entry["party"] and not member.party:
+            member.party = entry["party"]
+            changed = True
+        if entry["state"] and not member.state:
+            member.state = entry["state"]
+            changed = True
+        if entry["chamber"] and not member.chamber:
+            member.chamber = entry["chamber"]
+            changed = True
+        if entry["committees"] and not member.committees:
+            member.committees = entry["committees"]
+            changed = True
+        if changed:
+            updated += 1
+            db.query(Trade).filter(
+                Trade.member_match_key == member.match_key, Trade.party.is_(None)
+            ).update({"party": member.party}, synchronize_session=False)
+            db.query(Trade).filter(
+                Trade.member_match_key == member.match_key, Trade.state.is_(None)
+            ).update({"state": member.state}, synchronize_session=False)
+    db.commit()
+    return updated
+
+
 def run(sources=SOURCES) -> dict:
     init_db()
     db = SessionLocal()
     stats = {"fetched": 0, "inserted": 0, "updated": 0, "skipped": 0, "per_source": {}}
     member_cache: dict = {}
     trade_cache: dict = {}
+    enrichment = legislators.fetch_enrichment()
+    backfilled = backfill_enrichment(db, enrichment)
+    if backfilled:
+        logger.info("legislators: backfilled party/state/chamber for %d existing member(s)", backfilled)
 
     try:
         for source_mod in sources:
@@ -175,6 +239,7 @@ def run(sources=SOURCES) -> dict:
                 if normalized is None:
                     stats["skipped"] += 1
                     continue
+                apply_enrichment(normalized, enrichment)
                 upsert_member(db, normalized, member_cache)
                 inserted = upsert_trade(db, normalized, trade_cache)
                 if inserted:

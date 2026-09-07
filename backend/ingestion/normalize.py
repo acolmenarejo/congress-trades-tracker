@@ -7,6 +7,17 @@ _TITLE_WORDS = {"mr", "mrs", "ms", "dr", "jr", "sr", "ii", "iii", "iv", "hon", "
 _TAG_RE = re.compile(r"<[^>]+>")
 _NON_ALPHA_RE = re.compile(r"[^a-z]")
 _WS_RE = re.compile(r"\s+")
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def clean_text(raw: Optional[str]) -> Optional[str]:
+    """Strip stray control/null bytes some upstream scrapers leak into free-text
+    fields (seen in asset_description for a handful of jammed PDF-to-text rows)."""
+    if not raw:
+        return raw
+    cleaned = _CONTROL_CHARS_RE.sub("", raw)
+    cleaned = _WS_RE.sub(" ", cleaned).strip()
+    return cleaned or None
 
 _PARTY_MAP = {
     "d": "D", "dem": "D", "democrat": "D", "democratic": "D",
