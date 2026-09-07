@@ -31,7 +31,8 @@ export default function Dashboard() {
   if (error) {
     return (
       <p className="text-sm text-red-600 dark:text-red-400">
-        {error}. ¿Está corriendo el backend en http://127.0.0.1:8000?
+        {error}. El backend público todavía no está desplegado (ver README) —
+        si estás en local, ¿está corriendo en http://127.0.0.1:8000?
       </p>
     );
   }
