@@ -1,11 +1,13 @@
 from datetime import date
 from typing import Optional
 
+import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from . import crud
+from .config import CRON_SECRET, GITHUB_REPO, GITHUB_TOKEN
 from .database import get_db, init_db
 from .schemas import MemberOut, MemberRankingOut, TickerSummaryOut, TradeListOut, TradeOut
 
@@ -95,3 +97,32 @@ def get_ticker(ticker: str, db: Session = Depends(get_db)):
 @app.get("/tickers/{ticker}/prices")
 def get_ticker_prices(ticker: str, days: int = Query(180, le=1825), db: Session = Depends(get_db)):
     return crud.get_ticker_prices(db, ticker, days=days)
+
+
+def _dispatch_workflow(workflow_file: str) -> int:
+    resp = requests.post(
+        f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{workflow_file}/dispatches",
+        headers={
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github+json",
+        },
+        json={"ref": "master"},
+        timeout=10,
+    )
+    return resp.status_code
+
+
+@app.api_route("/internal/trigger-poll", methods=["GET", "POST"])
+def trigger_poll(secret: str = Query(...)):
+    """Called by an external free pinger (e.g. cron-job.org) every 1-2 minutes.
+    Relays into a GitHub Actions workflow_dispatch for bot-poll.yml, which is
+    where the actual Telegram polling + durable state write happens (this
+    process can't write the read-only-in-prod SQLite file itself)."""
+    if not CRON_SECRET or secret != CRON_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not GITHUB_TOKEN:
+        raise HTTPException(status_code=500, detail="GITHUB_TOKEN not configured")
+    status_code = _dispatch_workflow("bot-poll.yml")
+    if status_code >= 300:
+        raise HTTPException(status_code=502, detail=f"GitHub dispatch failed: {status_code}")
+    return {"status": "dispatched"}

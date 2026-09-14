@@ -3,7 +3,7 @@ import logging
 
 import requests
 
-from config import TELEGRAM_API_BASE
+from .config import TELEGRAM_API_BASE
 
 logger = logging.getLogger(__name__)
 
