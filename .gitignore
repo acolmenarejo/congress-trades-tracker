@@ -17,3 +17,5 @@ backend/data/*.db-journal
 
 # Local Netlify folder
 .netlify
+
+.vercel

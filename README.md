@@ -8,11 +8,10 @@ frontend (dashboard, feed, ranking, página de miembro, página de ticker con
 velas), ranking con retorno estimado real, y bot de Telegram — bot + ingesta +
 ranking corriendo 24/7 gratis en GitHub Actions.
 
-**Repo**: https://github.com/acolmenarejo/congress-trades-tracker (público,
-para minutos de GitHub Actions ilimitados gratis).
-**Frontend**: https://congress-trades-tracker.netlify.app — el backend
-todavía no está desplegado en ningún sitio público (ver sección de Despliegue),
-así que el sitio en vivo no podrá cargar datos hasta que eso se resuelva.
+**En vivo**: https://congress-trades-tracker.netlify.app (frontend, Netlify) +
+https://congress-trades-tracker-api.vercel.app (backend, Vercel) — ambos
+gratis, sin tarjeta. **Repo**: https://github.com/acolmenarejo/congress-trades-tracker
+(público, para minutos de GitHub Actions ilimitados gratis).
 
 ⚠️ **Importante sobre el bot**: ningún sistema —este incluido— puede avisarte
 *antes* de que el congresista publique su disclosure. La Ley STOCK permite hasta
@@ -183,25 +182,29 @@ Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settin
 
 - **Bot Telegram + ingesta + ranking**: ya corren solos en GitHub Actions
   (ver arriba), no necesitan ningún servicio adicional.
-- **Frontend**: desplegado en Netlify — https://congress-trades-tracker.netlify.app
-  (`netlify.toml` en la raíz, build de `frontend/`). Ya público (Site
-  configuration → Visitor access → "Public"). El sitio **no** está conectado
-  al repo de GitHub todavía (se creó y desplegó vía `netlify` CLI) — cada
-  cambio requiere `netlify deploy --prod` manual; conectar el repo desde
-  Netlify (Site settings → Build & deploy → Link repository) daría deploys
-  automáticos en cada push, pendiente de hacer. Intenté meter el backend
+- **Frontend**: Netlify — https://congress-trades-tracker.netlify.app
+  (`netlify.toml` en la raíz, build de `frontend/`). Público (Site
+  configuration → Visitor access → "Public"). Intenté meter el backend
   también como Netlify Function en Python para no depender de otro servicio,
   pero **esta versión de Netlify no soporta funciones en Python** (solo
   Node/Go/Rust o Edge Functions en Deno) — lo confirmé con
   `netlify functions:create --language python`, que falla con "Invalid
   language: python". Se descartó esa vía.
-- **Backend**: aún sin desplegar en ningún sitio público — el frontend en
-  Netlify no podrá cargar datos hasta que esto se resuelva. Como la DB se
-  commitea al repo vía Actions, no hace falta un volumen persistente de pago
-  en ningún proveedor: en cada deploy se parte del `.db` más reciente del
-  repo. Opciones gratuitas típicas: Render (free tier, sin tarjeta) o Railway
-  (trial). Una vez desplegado, configura `VITE_API_BASE` en Netlify con la URL
-  pública y vuelve a desplegar el frontend.
+- **Backend**: Vercel — https://congress-trades-tracker-api.vercel.app
+  (`vercel.json` en la raíz, `@vercel/python` sobre `backend/app/main.py`,
+  FastAPI corre directo sin adaptador tipo Mangum). Render y Railway piden
+  tarjeta incluso en su capa gratuita (comprobado); Vercel no. La app lee la
+  `congress_trades.db` commiteada al repo — como esa DB se actualiza vía
+  GitHub Actions, no hace falta ningún volumen persistente de pago. El
+  filesystem de Vercel es de solo lectura en producción, así que el caché de
+  precios (`price_cache`) no se puede escribir ahí — `app/prices.py` lo
+  captura con un try/except y sirve el precio igualmente sin cachearlo.
+  `frontend/src/lib/api.ts` apunta aquí vía la env var `VITE_API_BASE` de
+  Netlify.
+- Ninguno de los dos sitios (Netlify, Vercel) está conectado al repo de
+  GitHub para auto-deploy — ambos se crearon y desplegaron vía CLI. Cada
+  cambio requiere `netlify deploy --prod` / `vercel deploy --prod` manual;
+  conectarlos por Git daría deploys automáticos en cada push, pendiente de hacer.
 
 ## Backlog (ideas extra del encargo, no implementadas aún)
 

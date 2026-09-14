@@ -68,18 +68,26 @@ function TradeMarkerShape(props: any) {
   return <polygon points={points} fill={color} stroke="white" strokeWidth={0.5} />;
 }
 
-function closestClose(prices: PricePoint[], targetDate: string): number | null {
+const MAX_MARKER_SNAP_DAYS = 5;
+
+// Snap a trade to the nearest candle within the chart's own date range — a
+// trade far outside the visible window (e.g. a 2019 trade on a 6-month chart)
+// must be dropped, not clamped to the nearest edge candle (that piles up
+// unrelated markers on one date and drags the x-axis domain along with it).
+function nearestCandle(prices: PricePoint[], targetDate: string): { date: string; close: number } | null {
   let best: PricePoint | null = null;
-  let bestDiff = Infinity;
+  let bestDiffDays = Infinity;
+  const targetMs = new Date(targetDate).getTime();
   for (const p of prices) {
     if (p.close === null) continue;
-    const diff = Math.abs(new Date(p.date).getTime() - new Date(targetDate).getTime());
-    if (diff < bestDiff) {
-      bestDiff = diff;
+    const diffDays = Math.abs(new Date(p.date).getTime() - targetMs) / 86_400_000;
+    if (diffDays < bestDiffDays) {
+      bestDiffDays = diffDays;
       best = p;
     }
   }
-  return best?.close ?? null;
+  if (!best || bestDiffDays > MAX_MARKER_SNAP_DAYS) return null;
+  return { date: best.date, close: best.close as number };
 }
 
 export default function CandlestickChart({
@@ -106,13 +114,12 @@ export default function CandlestickChart({
 
   const markers = trades
     .filter((t) => t.transaction_date)
-    .map((t) => ({
-      date: t.transaction_date as string,
-      price: closestClose(prices, t.transaction_date as string),
-      type: t.transaction_type,
-      member: t.member_name,
-    }))
-    .filter((m) => m.price !== null);
+    .map((t) => {
+      const snapped = nearestCandle(prices, t.transaction_date as string);
+      if (!snapped) return null;
+      return { date: snapped.date, price: snapped.close, type: t.transaction_type, member: t.member_name };
+    })
+    .filter((m) => m !== null);
 
   if (candles.length === 0) {
     return (

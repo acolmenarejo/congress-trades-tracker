@@ -34,8 +34,7 @@ except ImportError:
 
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import MemberRanking, Trade  # noqa: E402
-
-from ranking import prices  # noqa: E402
+from app import prices  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("calculate_rankings")

@@ -1,10 +1,11 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import Member, MemberRanking, Trade
+from . import prices
 
 
 def list_trades(
@@ -128,10 +129,6 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
 
 
 def get_ticker_prices(db: Session, ticker: str, days: int = 180):
-    from datetime import date, timedelta
-
-    from ranking import prices
-
     ticker = ticker.upper()
     series = prices.get_price_series(db, ticker, date.today() - timedelta(days=days), date.today())
     return [

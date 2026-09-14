@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 import requests
 from sqlalchemy.orm import Session
 
-from app.models import PriceCache
+from .models import PriceCache
 
 logger = logging.getLogger(__name__)
 
@@ -90,15 +90,21 @@ def get_price_series(db: Session, ticker: str, start: date, end: date, max_age_d
             for r in cached
         ]
 
-    for row in fresh_rows:
-        existing = db.query(PriceCache).filter_by(ticker=ticker, date=row["date"]).one_or_none()
-        if existing is None:
-            db.add(PriceCache(ticker=ticker, **row))
-        else:
-            for k, v in row.items():
-                if k != "date":
-                    setattr(existing, k, v)
-    db.commit()
+    try:
+        for row in fresh_rows:
+            existing = db.query(PriceCache).filter_by(ticker=ticker, date=row["date"]).one_or_none()
+            if existing is None:
+                db.add(PriceCache(ticker=ticker, **row))
+            else:
+                for k, v in row.items():
+                    if k != "date":
+                        setattr(existing, k, v)
+        db.commit()
+    except Exception:
+        # Read-only filesystem (e.g. serverless deploys) or any other write
+        # failure: still serve the freshly-fetched prices, just don't cache them.
+        logger.warning("prices: could not persist cache for %s (read-only deploy?)", ticker)
+        db.rollback()
     return fresh_rows
 
 
