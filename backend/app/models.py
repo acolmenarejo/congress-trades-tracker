@@ -76,6 +76,25 @@ class MemberRanking(Base):
     last_calculated = Column(DateTime, nullable=True)
 
 
+class TradeReturn(Base):
+    """Per-trade estimated return, computed alongside MemberRanking by the
+    same daily job — lets the member profile page show "best/worst trades"
+    without recomputing prices on every request (and without the Vercel
+    read-only-filesystem problem: this table is only ever written by the
+    GitHub Actions cron, same as MemberRanking)."""
+
+    __tablename__ = "trade_returns"
+
+    trade_id = Column(Integer, primary_key=True)
+    match_key = Column(String, index=True, nullable=False)
+    ticker = Column(String, nullable=False)
+    return_pct = Column(Float, nullable=False)
+    entry_price = Column(Float, nullable=True)
+    exit_price = Column(Float, nullable=True)
+    closed = Column(Boolean, default=False)  # False = still holding, return is "as of today"
+    last_calculated = Column(DateTime, nullable=True)
+
+
 class PriceCache(Base):
     """Daily close prices, fetched once and reused across ranking runs and the
     ticker candlestick endpoint. Avoids re-hitting Yahoo Finance for the same

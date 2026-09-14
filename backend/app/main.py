@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from . import crud
 from .config import CRON_SECRET, GITHUB_REPO, GITHUB_TOKEN
 from .database import get_db, init_db
-from .schemas import MemberOut, MemberRankingOut, TickerSummaryOut, TradeListOut, TradeOut
+from .schemas import MemberBestTradeOut, MemberOut, MemberRankingOut, TickerSummaryOut, TradeListOut, TradeOut
 
 app = FastAPI(title="Congress Trades Tracker API", version="0.1.0")
 
@@ -84,6 +84,16 @@ def get_member(match_key: str, db: Session = Depends(get_db)):
 @app.get("/members/{match_key}/trades", response_model=list[TradeOut])
 def get_member_trades(match_key: str, limit: int = Query(500, le=2000), db: Session = Depends(get_db)):
     return crud.get_member_trades(db, match_key, limit=limit)
+
+
+@app.get("/members/{match_key}/best-trades", response_model=list[MemberBestTradeOut])
+def get_member_best_trades(
+    match_key: str,
+    limit: int = Query(5, le=20),
+    worst: bool = False,
+    db: Session = Depends(get_db),
+):
+    return crud.get_member_best_trades(db, match_key, limit=limit, worst=worst)
 
 
 @app.get("/tickers/{ticker}", response_model=TickerSummaryOut)

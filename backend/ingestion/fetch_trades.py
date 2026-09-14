@@ -147,6 +147,8 @@ def apply_enrichment(row: dict, enrichment: dict) -> None:
         row["state"] = entry["state"]
     if entry["chamber"] and not row.get("chamber"):
         row["chamber"] = entry["chamber"]
+    if entry.get("bioguide") and not row.get("bioguide_id"):
+        row["bioguide_id"] = entry["bioguide"]
     row["committees"] = entry["committees"]
 
 
@@ -198,6 +200,9 @@ def backfill_enrichment(db, enrichment: dict) -> int:
             changed = True
         if entry["committees"] and not member.committees:
             member.committees = entry["committees"]
+            changed = True
+        if entry.get("bioguide") and not member.bioguide_id:
+            member.bioguide_id = entry["bioguide"]
             changed = True
         if changed:
             updated += 1

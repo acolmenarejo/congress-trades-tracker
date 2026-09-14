@@ -36,6 +36,16 @@ export interface Kpis {
   active_filers: number;
 }
 
+export interface MemberRankingSummary {
+  trade_count: number;
+  volume_estimate: number;
+  total_return_pct: number | null;
+  annualized_return_pct: number | null;
+  win_rate_pct: number | null;
+  alpha_vs_sp500_pct: number | null;
+  avg_disclosure_lag_days: number | null;
+}
+
 export interface Member {
   id: number;
   match_key: string;
@@ -46,6 +56,22 @@ export interface Member {
   district: string | null;
   bioguide_id: string | null;
   committees: string | null;
+  photo_url: string | null;
+  ranking: MemberRankingSummary | null;
+}
+
+export interface MemberBestTrade {
+  ticker: string;
+  asset_name: string | null;
+  transaction_type: "purchase" | "sale" | "exchange" | null;
+  transaction_date: string | null;
+  amount_range_low: number | null;
+  amount_range_high: number | null;
+  return_pct: number;
+  entry_price: number | null;
+  exit_price: number | null;
+  closed: boolean;
+  filing_url: string | null;
 }
 
 export interface MemberRanking {
@@ -104,7 +130,7 @@ async function getJSON<T>(path: string): Promise<T> {
   return res.json();
 }
 
-function qs(params: Record<string, string | number | undefined>): string {
+function qs(params: Record<string, string | number | boolean | undefined>): string {
   const usp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") usp.set(key, String(value));
@@ -123,6 +149,8 @@ export const api = {
   member: (matchKey: string) => getJSON<Member>(`/members/${matchKey}`),
   memberTrades: (matchKey: string, limit = 500) =>
     getJSON<Trade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
+  memberBestTrades: (matchKey: string, limit = 5, worst = false) =>
+    getJSON<MemberBestTrade[]>(`/members/${matchKey}/best-trades${qs({ limit, worst })}`),
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),
   tickerPrices: (ticker: string, days = 180) =>
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),

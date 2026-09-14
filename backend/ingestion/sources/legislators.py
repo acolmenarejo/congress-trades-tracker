@@ -41,7 +41,17 @@ def _committee_names_by_thomas_id(timeout: int = 30) -> dict:
     except Exception:
         logger.warning("legislators: failed to fetch committees list, skipping committee names")
         return {}
-    return {c["thomas_id"]: c["name"] for c in committees if c.get("thomas_id")}
+    names = {}
+    for c in committees:
+        if not c.get("thomas_id"):
+            continue
+        names[c["thomas_id"]] = c["name"]
+        # Subcommittee membership rows use the parent's thomas_id + the
+        # subcommittee's own 2-digit code concatenated (e.g. "HSAP" + "01").
+        for sub in c.get("subcommittees") or []:
+            if sub.get("thomas_id"):
+                names[c["thomas_id"] + sub["thomas_id"]] = f"{c['name']} - {sub['name']}"
+    return names
 
 
 def fetch_enrichment(timeout: int = 30) -> dict:
@@ -62,7 +72,9 @@ def fetch_enrichment(timeout: int = 30) -> dict:
 
     committees_by_bioguide: dict[str, list[str]] = {}
     for thomas_id, members in (memberships or {}).items():
-        name = committee_names.get(thomas_id, thomas_id)
+        name = committee_names.get(thomas_id)
+        if not name:
+            continue  # unresolved subcommittee code (e.g. joint/select committees not in committees-current.yaml) — skip rather than show a raw code
         for m in members:
             bioguide = m.get("bioguide")
             if bioguide:
@@ -81,6 +93,7 @@ def fetch_enrichment(timeout: int = 30) -> dict:
         )
         entry = {
             "name": full_name,
+            "bioguide": bioguide,
             "party": _PARTY_MAP.get(last_term.get("party"), None),
             "state": last_term.get("state"),
             "chamber": _CHAMBER_MAP.get(last_term.get("type")),

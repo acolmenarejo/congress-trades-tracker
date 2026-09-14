@@ -33,7 +33,7 @@ except ImportError:
     pass
 
 from app.database import SessionLocal, init_db  # noqa: E402
-from app.models import MemberRanking, Trade  # noqa: E402
+from app.models import MemberRanking, Trade, TradeReturn  # noqa: E402
 from app import prices  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -77,6 +77,7 @@ def match_purchases_to_sales(trades: list[Trade]) -> list[dict]:
 
 def compute_member_metrics(db, member_purchases: list[dict], today: date) -> dict | None:
     trade_returns = []  # (return_pct, weight, alpha_pct, holding_days)
+    per_trade = []  # one row per purchase we could price, for the "best trades" table
 
     price_series_cache: dict[str, list[dict]] = {}
 
@@ -121,6 +122,16 @@ def compute_member_metrics(db, member_purchases: list[dict], today: date) -> dic
             alpha_pct = return_pct - spy_return
 
         trade_returns.append((return_pct, weight, alpha_pct, holding_days))
+        per_trade.append(
+            {
+                "trade_id": t.id,
+                "ticker": t.ticker,
+                "return_pct": return_pct,
+                "entry_price": entry,
+                "exit_price": exit_price,
+                "closed": item["closed"],
+            }
+        )
 
     if not trade_returns:
         return None
@@ -142,6 +153,7 @@ def compute_member_metrics(db, member_purchases: list[dict], today: date) -> dic
         "annualized_return_pct": annualized_return_pct,
         "win_rate_pct": win_rate_pct,
         "alpha_vs_sp500_pct": alpha_vs_sp500_pct,
+        "per_trade": per_trade,
     }
 
 
@@ -185,6 +197,19 @@ def run() -> dict:
                 ranking.win_rate_pct = metrics["win_rate_pct"]
                 ranking.alpha_vs_sp500_pct = metrics["alpha_vs_sp500_pct"]
                 stats["members_ranked"] += 1
+
+                for pt in metrics["per_trade"]:
+                    row = db.query(TradeReturn).filter_by(trade_id=pt["trade_id"]).one_or_none()
+                    if row is None:
+                        row = TradeReturn(trade_id=pt["trade_id"])
+                        db.add(row)
+                    row.match_key = match_key
+                    row.ticker = pt["ticker"]
+                    row.return_pct = pt["return_pct"]
+                    row.entry_price = pt["entry_price"]
+                    row.exit_price = pt["exit_price"]
+                    row.closed = pt["closed"]
+                    row.last_calculated = datetime.now(UTC)
 
             db.commit()
             logger.info(

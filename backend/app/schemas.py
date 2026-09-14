@@ -34,6 +34,16 @@ class TradeListOut(BaseModel):
     items: list[TradeOut]
 
 
+class MemberRankingSummary(BaseModel):
+    trade_count: int
+    volume_estimate: float
+    total_return_pct: Optional[float] = None
+    annualized_return_pct: Optional[float] = None
+    win_rate_pct: Optional[float] = None
+    alpha_vs_sp500_pct: Optional[float] = None
+    avg_disclosure_lag_days: Optional[float] = None
+
+
 class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +56,8 @@ class MemberOut(BaseModel):
     district: Optional[str] = None
     bioguide_id: Optional[str] = None
     committees: Optional[str] = None
+    photo_url: Optional[str] = None
+    ranking: Optional[MemberRankingSummary] = None
 
 
 class MemberRankingOut(BaseModel):
@@ -62,6 +74,20 @@ class MemberRankingOut(BaseModel):
     alpha_vs_sp500_pct: Optional[float] = None
     avg_disclosure_lag_days: Optional[float] = None
     last_calculated: Optional[str] = None
+
+
+class MemberBestTradeOut(BaseModel):
+    ticker: str
+    asset_name: Optional[str] = None
+    transaction_type: Optional[str] = None
+    transaction_date: Optional[date] = None
+    amount_range_low: Optional[float] = None
+    amount_range_high: Optional[float] = None
+    return_pct: float
+    entry_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    closed: bool
+    filing_url: Optional[str] = None
 
 
 class TickerSummaryOut(BaseModel):
