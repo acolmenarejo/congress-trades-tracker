@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type PricePoint, type TickerSummary } from "../lib/api";
 import { useDarkMode } from "../hooks/useDarkMode";
 import CandlestickChart from "../components/charts/CandlestickChart";
 import { formatAmountRange, formatDate, partyColor } from "../lib/format";
+
+const MAX_DAYS = 1825; // backend cap (5 years)
 
 const RANGE_OPTIONS = [
   { label: "3M", days: 90 },
@@ -30,6 +32,28 @@ export default function TickerPage() {
     api.tickerPrices(ticker, days).then(setPrices).catch(() => setPrices([]));
   }, [ticker, days]);
 
+  // How far back the earliest trade goes, so "Todo" can cover every trade
+  // this ticker has instead of getting stuck at the 3M/6M/1A/2A presets —
+  // those alone silently dropped markers for trades older than 2 years,
+  // which read as a bug ("11 trades but way fewer triangles") when it was
+  // really just an out-of-range price window.
+  const maxTradeDays = useMemo(() => {
+    if (!summary || summary.trades.length === 0) return 730;
+    const oldest = summary.trades.reduce(
+      (min, t) => (t.transaction_date && t.transaction_date < min ? t.transaction_date : min),
+      summary.trades[0].transaction_date ?? new Date().toISOString().slice(0, 10),
+    );
+    const diffDays = Math.ceil((Date.now() - new Date(oldest).getTime()) / 86_400_000);
+    return Math.min(Math.max(diffDays + 10, 730), MAX_DAYS);
+  }, [summary]);
+
+  const visibleTradeCount = useMemo(() => {
+    if (!summary) return 0;
+    const cutoff = Date.now() - days * 86_400_000;
+    return summary.trades.filter((t) => t.transaction_date && new Date(t.transaction_date).getTime() >= cutoff)
+      .length;
+  }, [summary, days]);
+
   if (notFound) {
     return <p className="text-sm text-slate-500">Sin trades registrados para este ticker.</p>;
   }
@@ -47,21 +71,50 @@ export default function TickerPage() {
         </p>
       </div>
 
-      <div className="flex gap-1">
-        {RANGE_OPTIONS.map((opt) => (
-          <button
-            key={opt.days}
-            type="button"
-            onClick={() => setDays(opt.days)}
-            className={`rounded-md px-3 py-1 text-sm ${
-              days === opt.days
-                ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                : "border border-slate-300 dark:border-slate-700"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1">
+          {RANGE_OPTIONS.map((opt) => (
+            <button
+              key={opt.days}
+              type="button"
+              onClick={() => setDays(opt.days)}
+              className={`rounded-md px-3 py-1 text-sm ${
+                days === opt.days
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "border border-slate-300 dark:border-slate-700"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          {maxTradeDays > 730 && (
+            <button
+              type="button"
+              onClick={() => setDays(maxTradeDays)}
+              className={`rounded-md px-3 py-1 text-sm ${
+                days === maxTradeDays
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : "border border-slate-300 dark:border-slate-700"
+              }`}
+            >
+              Todo
+            </button>
+          )}
+        </div>
+        {summary.trade_count > visibleTradeCount && (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Mostrando {visibleTradeCount} de {summary.trade_count} operaciones en este rango — algunas son más
+            antiguas que el histórico de precio cargado.
+            {maxTradeDays > days && (
+              <>
+                {" "}
+                <button type="button" onClick={() => setDays(maxTradeDays)} className="underline">
+                  Ver todas
+                </button>
+              </>
+            )}
+          </span>
+        )}
       </div>
 
       <CandlestickChart prices={prices} trades={summary.trades} dark={dark} />
