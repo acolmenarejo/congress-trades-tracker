@@ -10,7 +10,7 @@ import {
 } from "recharts";
 import type { PricePoint, Trade } from "../../lib/api";
 import { chartColors } from "../../lib/chartTheme";
-import { formatDate } from "../../lib/format";
+import { formatAmountRange, formatDate } from "../../lib/format";
 
 // Status colors (fixed, never themed) per the dataviz palette: up/down candles
 // are a state signal, not a categorical series.
@@ -112,12 +112,25 @@ export default function CandlestickChart({
       range: [p.low as number, p.high as number],
     }));
 
+  const markersByDate = new Map<string, number>();
   const markers = trades
     .filter((t) => t.transaction_date)
     .map((t) => {
       const snapped = nearestCandle(prices, t.transaction_date as string);
       if (!snapped) return null;
-      return { date: snapped.date, price: snapped.close, type: t.transaction_type, member: t.member_name };
+      // Jitter stacked markers on the same date so each stays hoverable
+      // instead of perfectly overlapping.
+      const occurrence = markersByDate.get(snapped.date) ?? 0;
+      markersByDate.set(snapped.date, occurrence + 1);
+      const jitter = occurrence * (snapped.close * 0.012);
+      return {
+        date: snapped.date,
+        price: snapped.close + jitter,
+        type: t.transaction_type,
+        member: t.member_name,
+        transactionDate: t.transaction_date,
+        amount: formatAmountRange(t.amount_range_low, t.amount_range_high),
+      };
     })
     .filter((m) => m !== null);
 
@@ -172,6 +185,31 @@ export default function CandlestickChart({
           <Tooltip
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
+
+              const markerEntry = payload.find((p: any) => p.payload && "member" in p.payload);
+              if (markerEntry) {
+                const m = markerEntry.payload as {
+                  member: string;
+                  type: string | null;
+                  amount: string;
+                  transactionDate: string | null;
+                };
+                const isBuy = m.type === "purchase";
+                return (
+                  <div
+                    className="rounded border p-2 text-xs"
+                    style={{ background: colors.surface, borderColor: colors.grid }}
+                  >
+                    <div className="font-medium" style={{ color: isBuy ? UP_COLOR : DOWN_COLOR }}>
+                      {isBuy ? "🟢 Compra" : "🔴 Venta"}
+                    </div>
+                    <div>{m.member}</div>
+                    <div>{m.amount}</div>
+                    <div className="text-slate-500 dark:text-slate-400">{formatDate(m.transactionDate)}</div>
+                  </div>
+                );
+              }
+
               const d = payload[0].payload as CandleDatum;
               return (
                 <div
