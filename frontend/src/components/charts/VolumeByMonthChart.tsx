@@ -31,8 +31,8 @@ export default function VolumeByMonthChart({
     .map(([month, volume]) => ({ month, volume }));
 
   return (
-    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-      <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+      <h3 className="mb-3 font-serif text-base font-semibold">
         Volumen operado por mes
       </h3>
       <ResponsiveContainer width="100%" height={260}>

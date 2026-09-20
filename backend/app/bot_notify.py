@@ -4,15 +4,35 @@ import logging
 from datetime import date, timedelta
 
 from . import prices
+from .conflicts import detect_conflict
 from .config import TELEGRAM_BOT_TOKEN
 from .database import SessionLocal, init_db
-from .models import MemberRanking, Trade, TelegramWatch
+from .models import Member, MemberRanking, Trade, TelegramWatch
 from .telegram_api import send_message
 
 logger = logging.getLogger("bot.notify")
 
 _TYPE_EMOJI = {"purchase": "🟢 Compra", "sale": "🔴 Venta", "exchange": "🔁 Canje"}
 _CHAMBER_LABEL = {"house": "Cámara de Representantes", "senate": "Senado"}
+
+# Mirrors frontend/src/lib/highValue.ts — STOCK Act disclosure bands, not
+# arbitrary cutoffs ($250,001-$500,000 and $1,000,001-$5,000,000 are real
+# reporting tiers).
+HIGH_VALUE_THRESHOLD = 250_000
+VERY_HIGH_VALUE_THRESHOLD = 1_000_000
+
+
+def _trade_value(trade: Trade) -> float:
+    return trade.amount_range_low or trade.amount_mid or 0
+
+
+def _high_value_line(trade: Trade) -> str | None:
+    value = _trade_value(trade)
+    if value >= VERY_HIGH_VALUE_THRESHOLD:
+        return "💰💰💰 <b>IMPORTE MUY ALTO</b> 💰💰💰"
+    if value >= HIGH_VALUE_THRESHOLD:
+        return "💰 <b>IMPORTE ALTO</b>"
+    return None
 
 
 def _format_amount(low, high) -> str:
@@ -70,6 +90,21 @@ def _price_move_line(db, trade: Trade) -> str | None:
     return f"{arrow} {price_summary}"
 
 
+def _conflict_line(db, trade: Trade) -> str | None:
+    """Prominent warning when the member sits on a committee with plausible
+    jurisdiction over the traded company's sector — see conflicts.py for the
+    (deliberately conservative) heuristic and its caveats."""
+    member = db.query(Member).filter_by(match_key=trade.member_match_key).one_or_none()
+    match = detect_conflict(trade.ticker, member.committees if member else None)
+    if not match:
+        return None
+    return (
+        "🚨 <b>POSIBLE CONFLICTO DE INTERÉS</b> 🚨\n"
+        f"{trade.member_name} es miembro de: <b>{' · '.join(match.committees)}</b>\n"
+        f"(competencia sobre {', '.join(match.sectors)} — señal heurística automática, no una acusación)"
+    )
+
+
 def _format_alert(db, trade: Trade) -> str:
     lag = f"{trade.disclosure_lag_days} días" if trade.disclosure_lag_days is not None else "desconocido"
     lines = [
@@ -80,6 +115,16 @@ def _format_alert(db, trade: Trade) -> str:
         f"Fecha operación: {trade.transaction_date}",
         f"Fecha disclosure: {trade.disclosure_date or 'desconocida'} (retraso: {lag})",
     ]
+
+    conflict_line = _conflict_line(db, trade)
+    if conflict_line:
+        lines.insert(0, "")
+        lines.insert(0, conflict_line)
+
+    high_value_line = _high_value_line(trade)
+    if high_value_line:
+        lines.insert(0, "")
+        lines.insert(0, high_value_line)
 
     price_line = _price_move_line(db, trade)
     if price_line:

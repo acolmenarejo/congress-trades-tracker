@@ -3,6 +3,13 @@ import { Link, useParams } from "react-router-dom";
 import { api, type PricePoint, type TickerSummary } from "../lib/api";
 import { useDarkMode } from "../hooks/useDarkMode";
 import CandlestickChart from "../components/charts/CandlestickChart";
+import TransactionBadge from "../components/TransactionBadge";
+import ConflictBadge from "../components/ConflictBadge";
+import HighValueBadge from "../components/HighValueBadge";
+import { SkeletonRows, Skeleton } from "../components/Skeleton";
+import { useCommitteesForMembers } from "../hooks/useCommittees";
+import { detectConflict } from "../lib/conflictOfInterest";
+import { highValueTier } from "../lib/highValue";
 import { formatAmountRange, formatDate, partyColor } from "../lib/format";
 
 const MAX_DAYS = 1825; // backend cap (5 years)
@@ -21,6 +28,7 @@ export default function TickerPage() {
   const [prices, setPrices] = useState<PricePoint[]>([]);
   const [days, setDays] = useState(180);
   const [notFound, setNotFound] = useState(false);
+  const committees = useCommitteesForMembers((summary?.trades ?? []).map((t) => t.member_match_key));
 
   useEffect(() => {
     if (!ticker) return;
@@ -55,19 +63,29 @@ export default function TickerPage() {
   }, [summary, days]);
 
   if (notFound) {
-    return <p className="text-sm text-slate-500">Sin trades registrados para este ticker.</p>;
+    return <p className="text-sm text-ink/60 dark:text-slate-400">Sin trades registrados para este ticker.</p>;
   }
   if (!summary) {
-    return <p className="text-sm text-slate-500">Cargando…</p>;
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-64 w-full" />
+        <SkeletonRows rows={5} />
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold">${summary.ticker}</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <h2 className="font-serif text-2xl font-semibold">
+          <span className="font-mono">${summary.ticker}</span>
+        </h2>
+        <p className="font-mono text-sm text-ink/60 dark:text-slate-400">
           {summary.trade_count} trades · {summary.distinct_members} congresistas ·{" "}
-          {summary.buy_count} compras / {summary.sell_count} ventas
+          <span className="text-buy-dim dark:text-buy">{summary.buy_count} compras</span>
+          {" / "}
+          <span className="text-sell-dim dark:text-sell">{summary.sell_count} ventas</span>
         </p>
       </div>
 
@@ -78,10 +96,10 @@ export default function TickerPage() {
               key={opt.days}
               type="button"
               onClick={() => setDays(opt.days)}
-              className={`rounded-md px-3 py-1 text-sm ${
+              className={`rounded-md px-3 py-1 font-mono text-sm ${
                 days === opt.days
-                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                  : "border border-slate-300 dark:border-slate-700"
+                  ? "bg-ink text-paper dark:bg-buy dark:text-ledger"
+                  : "border border-ink/20 dark:border-slate-100/20"
               }`}
             >
               {opt.label}
@@ -91,10 +109,10 @@ export default function TickerPage() {
             <button
               type="button"
               onClick={() => setDays(maxTradeDays)}
-              className={`rounded-md px-3 py-1 text-sm ${
+              className={`rounded-md px-3 py-1 font-mono text-sm ${
                 days === maxTradeDays
-                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                  : "border border-slate-300 dark:border-slate-700"
+                  ? "bg-ink text-paper dark:bg-buy dark:text-ledger"
+                  : "border border-ink/20 dark:border-slate-100/20"
               }`}
             >
               Todo
@@ -102,7 +120,7 @@ export default function TickerPage() {
           )}
         </div>
         {summary.trade_count > visibleTradeCount && (
-          <span className="text-xs text-slate-500 dark:text-slate-400">
+          <span className="text-xs text-ink/60 dark:text-slate-400">
             Mostrando {visibleTradeCount} de {summary.trade_count} operaciones en este rango — algunas son más
             antiguas que el histórico de precio cargado.
             {maxTradeDays > days && (
@@ -120,12 +138,12 @@ export default function TickerPage() {
       <CandlestickChart prices={prices} trades={summary.trades} dark={dark} />
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <h3 className="mb-2 font-serif text-base font-semibold">
           Congresistas que han operado ${summary.ticker}
         </h3>
-        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+        <div className="overflow-x-auto rounded-lg border border-ink/10 dark:border-slate-100/10">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+            <thead className="bg-paper-dim text-left font-mono text-[11px] uppercase tracking-wide text-ink/50 dark:bg-slate-100/[0.03] dark:text-slate-400">
               <tr>
                 <th className="px-3 py-2">Miembro</th>
                 <th className="px-3 py-2">Tipo</th>
@@ -133,25 +151,34 @@ export default function TickerPage() {
                 <th className="px-3 py-2">Fecha</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {summary.trades.map((t) => (
-                <tr key={t.id}>
-                  <td className="px-3 py-2">
-                    <Link to={`/members/${t.member_match_key}`} className="hover:underline">
-                      <span
-                        className="mr-1.5 inline-block h-2 w-2 rounded-full"
-                        style={{ background: partyColor(t.party) }}
-                      />
-                      {t.member_name}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2">
-                    {t.transaction_type === "purchase" ? "Compra" : t.transaction_type === "sale" ? "Venta" : t.transaction_type}
-                  </td>
-                  <td className="px-3 py-2">{formatAmountRange(t.amount_range_low, t.amount_range_high)}</td>
-                  <td className="px-3 py-2 text-slate-500 dark:text-slate-400">{formatDate(t.transaction_date)}</td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-ink/10 dark:divide-slate-100/10">
+              {summary.trades.map((t) => {
+                const tier = highValueTier(t);
+                return (
+                  <tr
+                    key={t.id}
+                    className={`border-l-[3px] ${tier ? "bg-amber-500/5" : ""}`}
+                    style={{ borderLeftColor: partyColor(t.party) }}
+                  >
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Link to={`/members/${t.member_match_key}`} className="hover:underline">
+                          {t.member_name}
+                        </Link>
+                        <ConflictBadge match={detectConflict(t.ticker, committees[t.member_match_key] ?? null)} />
+                        <HighValueBadge tier={tier} />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <TransactionBadge type={t.transaction_type} />
+                    </td>
+                    <td className={`tabular-figures px-3 py-2 font-mono ${tier ? "font-bold" : ""}`}>
+                      {formatAmountRange(t.amount_range_low, t.amount_range_high)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-ink/60 dark:text-slate-400">{formatDate(t.transaction_date)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

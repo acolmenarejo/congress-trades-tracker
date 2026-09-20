@@ -9,14 +9,13 @@ export default function KpiCards({ kpis }: { kpis: Kpis }) {
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 divide-y divide-ink/10 overflow-hidden rounded-lg border border-ink/10 bg-paper-dim sm:grid-cols-3 sm:divide-x sm:divide-y-0 dark:divide-slate-100/10 dark:border-slate-100/10 dark:bg-slate-100/[0.03]">
       {items.map((item) => (
-        <div
-          key={item.label}
-          className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900"
-        >
-          <p className="text-sm text-slate-500 dark:text-slate-400">{item.label}</p>
-          <p className="mt-1 text-2xl font-semibold">{item.value}</p>
+        <div key={item.label} className="p-4">
+          <p className="font-mono text-[11px] uppercase tracking-wide text-ink/50 dark:text-slate-400">
+            {item.label}
+          </p>
+          <p className="tabular-figures mt-1 font-mono text-2xl font-semibold">{item.value}</p>
         </div>
       ))}
     </div>

@@ -32,8 +32,8 @@ export default function TopTickersChart({
     .reverse(); // largest on top in a horizontal bar
 
   return (
-    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-      <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+      <h3 className="mb-3 font-serif text-base font-semibold">
         Top 10 tickers más operados
       </h3>
       <ResponsiveContainer width="100%" height={300}>

@@ -27,12 +27,18 @@ export function formatPct(value: number | null | undefined): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+// Same hues as lib/chartTheme.ts (dark-mode variants) so the party accent on
+// list rows/cards matches the color used for that party in the charts.
 const PARTY_COLORS: Record<string, string> = {
-  D: "#3b82f6",
-  R: "#ef4444",
-  I: "#a855f7",
+  D: "#3987e5",
+  R: "#e66767",
+  I: "#9085e9",
 };
 
 export function partyColor(party: string | null): string {
-  return party ? PARTY_COLORS[party] ?? "#6b7280" : "#6b7280";
+  return party ? PARTY_COLORS[party] ?? "#89877f" : "#89877f";
+}
+
+export function partyLabel(party: string | null): string {
+  return party === "D" ? "Demócrata" : party === "R" ? "Republicano" : party === "I" ? "Independiente" : "—";
 }

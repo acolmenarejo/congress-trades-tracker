@@ -34,8 +34,8 @@ export default function PartySplitChart({
 
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-        <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">
+      <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+        <h3 className="mb-3 font-serif text-base font-semibold">
           Compra/venta por partido
         </h3>
         <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -46,8 +46,8 @@ export default function PartySplitChart({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
-      <h3 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-300">
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+      <h3 className="mb-3 font-serif text-base font-semibold">
         Compra/venta por partido
       </h3>
       <ResponsiveContainer width="100%" height={260}>

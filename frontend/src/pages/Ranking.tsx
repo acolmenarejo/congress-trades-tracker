@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type MemberRanking } from "../lib/api";
 import { formatPct, formatUSD, partyColor } from "../lib/format";
+import { SkeletonRows } from "../components/Skeleton";
+import Avatar from "../components/Avatar";
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "total_return_pct", label: "Retorno total" },
@@ -16,17 +18,22 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
 export default function Ranking() {
   const [sortBy, setSortBy] = useState("total_return_pct");
   const [rows, setRows] = useState<MemberRanking[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.ranking(sortBy).then(setRows);
+    setLoading(true);
+    api
+      .ranking(sortBy)
+      .then(setRows)
+      .finally(() => setLoading(false));
   }, [sortBy]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Ranking de traders del Congreso</h2>
+        <h2 className="font-serif text-2xl font-semibold">Ranking de traders del Congreso</h2>
         <select
-          className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+          className="rounded-md border border-ink/20 bg-paper px-2 py-1.5 text-sm dark:border-slate-100/20 dark:bg-slate-100/5"
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
         >
@@ -37,22 +44,31 @@ export default function Ranking() {
           ))}
         </select>
       </div>
+      <p className="max-w-2xl text-xs text-ink/50 dark:text-slate-400">
+        El rendimiento se calcula solo sobre trades de los últimos 2 años — un miembro con
+        historial más antiguo puede mostrar pocos trades aquí aunque tenga muchos más en su
+        timeline completo (ver su página de perfil).
+      </p>
 
-      {rows.length === 0 && (
-        <div className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+      {loading && <SkeletonRows rows={8} />}
+
+      {!loading && rows.length === 0 && (
+        <div className="rounded-lg border border-dashed border-ink/20 p-6 text-sm text-ink/60 dark:border-slate-100/20 dark:text-slate-400">
           Todavía no hay métricas de rendimiento calculadas (Fase 3, pendiente:
           cálculo diario de retorno estimado vía yfinance). Esta tabla se
           rellenará sola en cuanto ese job corra.
         </div>
       )}
 
-      {rows.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+      {!loading && rows.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-ink/10 dark:border-slate-100/10">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+            <thead className="bg-paper-dim text-left font-mono text-[11px] uppercase tracking-wide text-ink/50 dark:bg-slate-100/[0.03] dark:text-slate-400">
               <tr>
                 <th className="px-3 py-2">Miembro</th>
-                <th className="px-3 py-2">Trades</th>
+                <th className="px-3 py-2" title="Solo trades de los últimos 2 años — ventana usada para calcular el rendimiento">
+                  Trades (2A)
+                </th>
                 <th className="px-3 py-2">Volumen</th>
                 <th className="px-3 py-2">Retorno total</th>
                 <th className="px-3 py-2">Anualizado</th>
@@ -61,28 +77,31 @@ export default function Ranking() {
                 <th className="px-3 py-2">Retraso disclosure</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+            <tbody className="divide-y divide-ink/10 dark:divide-slate-100/10">
               {rows.map((r) => (
-                <tr key={r.match_key}>
+                <tr key={r.match_key} className="border-l-[3px]" style={{ borderLeftColor: partyColor(r.party) }}>
                   <td className="px-3 py-2">
-                    <Link to={`/members/${r.match_key}`} className="hover:underline">
-                      <span
-                        className="mr-1.5 inline-block h-2 w-2 rounded-full"
-                        style={{ background: partyColor(r.party) }}
-                      />
+                    <Link to={`/members/${r.match_key}`} className="flex items-center gap-2 hover:underline">
+                      <Avatar photoUrl={r.photo_url} name={r.name} size={28} />
                       {r.name}
                     </Link>
                   </td>
-                  <td className="px-3 py-2">{r.trade_count}</td>
-                  <td className="px-3 py-2">{formatUSD(r.volume_estimate)}</td>
-                  <td className="px-3 py-2">{formatPct(r.total_return_pct)}</td>
-                  <td className="px-3 py-2">{formatPct(r.annualized_return_pct)}</td>
-                  <td className="px-3 py-2">{formatPct(r.alpha_vs_sp500_pct)}</td>
-                  <td className="px-3 py-2">{formatPct(r.win_rate_pct)}</td>
+                  <td className="tabular-figures px-3 py-2 font-mono">{r.trade_count}</td>
+                  <td className="tabular-figures px-3 py-2 font-mono">{formatUSD(r.volume_estimate)}</td>
                   <td
-                    className={`px-3 py-2 ${
+                    className={`tabular-figures px-3 py-2 font-mono ${
+                      (r.total_return_pct ?? 0) >= 0 ? "text-buy-dim dark:text-buy" : "text-sell-dim dark:text-sell"
+                    }`}
+                  >
+                    {formatPct(r.total_return_pct)}
+                  </td>
+                  <td className="tabular-figures px-3 py-2 font-mono">{formatPct(r.annualized_return_pct)}</td>
+                  <td className="tabular-figures px-3 py-2 font-mono">{formatPct(r.alpha_vs_sp500_pct)}</td>
+                  <td className="tabular-figures px-3 py-2 font-mono">{formatPct(r.win_rate_pct)}</td>
+                  <td
+                    className={`tabular-figures px-3 py-2 font-mono ${
                       r.avg_disclosure_lag_days !== null && r.avg_disclosure_lag_days > 45
-                        ? "font-medium text-red-600 dark:text-red-400"
+                        ? "font-medium text-sell-dim dark:text-sell"
                         : ""
                     }`}
                     title={

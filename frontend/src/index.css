@@ -2,6 +2,21 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@theme {
+  --font-serif: "Fraunces", "Source Serif Pro", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --color-paper: #f5f1e8;
+  --color-paper-dim: #eae4d4;
+  --color-ink: #17140f;
+  --color-ledger: #0b0f17;
+  --color-ledger-raised: #12182399;
+  --color-buy: #c99a2e;
+  --color-buy-dim: #8a6a1e;
+  --color-sell: #b3453a;
+  --color-sell-dim: #7d302a;
+}
+
 :root {
   color-scheme: light dark;
 }
@@ -9,8 +24,20 @@
 body {
   margin: 0;
   font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.dark body {
+  background: var(--color-ledger);
+  color: #e8e4d8;
 }
 
 #root {
   min-height: 100svh;
+}
+
+.tabular-figures {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
 }

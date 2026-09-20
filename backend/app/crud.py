@@ -39,12 +39,23 @@ def list_trades(
 
     total = q.count()
     items = (
-        q.order_by(Trade.disclosure_date.desc().nullslast(), Trade.transaction_date.desc())
+        # Order by when the trade actually happened, not when it was
+        # disclosed — a trade filed very late (STOCK Act lag can run months)
+        # would otherwise jump to the top of "most recent" just because it
+        # was just made public, burying genuinely recent activity under old
+        # trades.
+        q.order_by(Trade.transaction_date.desc().nullslast(), Trade.disclosure_date.desc().nullslast())
         .offset(offset)
         .limit(limit)
         .all()
     )
     return total, items
+
+
+def _photo_url(bioguide_id: Optional[str]) -> Optional[str]:
+    if not bioguide_id:
+        return None
+    return f"https://unitedstates.github.io/images/congress/225x275/{bioguide_id}.jpg"
 
 
 def get_member(db: Session, match_key: str) -> Optional[dict]:
@@ -62,11 +73,7 @@ def get_member(db: Session, match_key: str) -> Optional[dict]:
         "district": member.district,
         "bioguide_id": member.bioguide_id,
         "committees": member.committees,
-        "photo_url": (
-            f"https://unitedstates.github.io/images/congress/225x275/{member.bioguide_id}.jpg"
-            if member.bioguide_id
-            else None
-        ),
+        "photo_url": _photo_url(member.bioguide_id),
         "ranking": {
             "trade_count": ranking.trade_count,
             "volume_estimate": ranking.volume_estimate,
@@ -179,6 +186,7 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
                 "chamber": member.chamber,
                 "party": member.party,
                 "state": member.state,
+                "photo_url": _photo_url(member.bioguide_id),
                 "trade_count": ranking.trade_count,
                 "volume_estimate": ranking.volume_estimate,
                 "total_return_pct": ranking.total_return_pct,

@@ -80,6 +80,7 @@ export interface MemberRanking {
   chamber: string | null;
   party: string | null;
   state: string | null;
+  photo_url: string | null;
   trade_count: number;
   volume_estimate: number;
   total_return_pct: number | null;
@@ -137,6 +138,24 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
   }
   const s = usp.toString();
   return s ? `?${s}` : "";
+}
+
+// /trades caps `limit` at 500 server-side (HTTP 422 above that) — this pages
+// through it to build a larger client-side sample for dashboards/exports.
+export async function fetchTradeSample(
+  maxItems: number,
+  filters: TradeFilters = {},
+): Promise<Trade[]> {
+  const pageSize = 500;
+  const out: Trade[] = [];
+  let offset = 0;
+  while (out.length < maxItems) {
+    const res = await api.trades({ ...filters, limit: pageSize, offset });
+    out.push(...res.items);
+    if (res.items.length < pageSize || out.length >= res.total) break;
+    offset += pageSize;
+  }
+  return out.slice(0, maxItems);
 }
 
 export const api = {

@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Feed from "./pages/Feed";
 import Ranking from "./pages/Ranking";
+import Compliance from "./pages/Compliance";
 import MemberPage from "./pages/MemberPage";
 import TickerPage from "./pages/TickerPage";
 
@@ -13,6 +14,7 @@ function App() {
         <Route index element={<Dashboard />} />
         <Route path="feed" element={<Feed />} />
         <Route path="ranking" element={<Ranking />} />
+        <Route path="compliance" element={<Compliance />} />
         <Route path="members/:matchKey" element={<MemberPage />} />
         <Route path="tickers/:ticker" element={<TickerPage />} />
       </Route>

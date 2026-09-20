@@ -186,9 +186,9 @@ export default function CandlestickChart({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <h3 className="font-serif text-base font-semibold">
           Precio y operaciones del Congreso
         </h3>
         <div className="flex gap-3 text-xs text-slate-500 dark:text-slate-400">

@@ -1,52 +1,40 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, type Member, type MemberBestTrade, type Trade } from "../lib/api";
-import { formatAmountRange, formatDate, formatPct, formatUSD } from "../lib/format";
+import TransactionBadge from "../components/TransactionBadge";
+import ConflictBadge from "../components/ConflictBadge";
+import HighValueBadge from "../components/HighValueBadge";
+import Avatar from "../components/Avatar";
+import { SkeletonRows, Skeleton } from "../components/Skeleton";
+import { detectConflict } from "../lib/conflictOfInterest";
+import { highValueTier } from "../lib/highValue";
+import { formatAmountRange, formatDate, formatPct, formatUSD, partyColor } from "../lib/format";
 
 const CHAMBER_LABEL: Record<string, string> = { house: "Cámara de Representantes", senate: "Senado" };
 const PARTY_LABEL: Record<string, string> = { D: "Demócrata", R: "Republicano", I: "Independiente" };
 
-function MemberPhoto({ member }: { member: Member }) {
-  const [failed, setFailed] = useState(false);
-  const initial = member.name.charAt(0).toUpperCase();
-
-  if (!member.photo_url || failed) {
-    return (
-      <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full bg-slate-200 text-3xl font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-        {initial}
-      </div>
-    );
-  }
-  return (
-    <img
-      src={member.photo_url}
-      alt={member.name}
-      onError={() => setFailed(true)}
-      className="h-24 w-24 shrink-0 rounded-full object-cover"
-    />
-  );
-}
-
-function BestTradeRow({ trade }: { trade: MemberBestTrade }) {
+function BestTradeRow({ trade, committees }: { trade: MemberBestTrade; committees: string | null }) {
   const isPositive = trade.return_pct >= 0;
+  const conflict = detectConflict(trade.ticker, committees);
   return (
     <li className="flex items-center justify-between p-3 text-sm">
       <div>
-        <span className="font-medium">
-          {trade.transaction_type === "purchase" ? "Compró" : "Vendió"}{" "}
-          <Link to={`/tickers/${trade.ticker}`} className="hover:underline">
+        <span className="flex flex-wrap items-center gap-2 font-medium">
+          <TransactionBadge type={trade.transaction_type} />
+          <Link to={`/tickers/${trade.ticker}`} className="font-mono hover:underline">
             ${trade.ticker}
           </Link>
+          <ConflictBadge match={conflict} />
         </span>
-        {trade.asset_name && <span className="text-slate-500 dark:text-slate-400"> — {trade.asset_name}</span>}
-        <div className="text-slate-500 dark:text-slate-400">
+        {trade.asset_name && <span className="text-ink/60 dark:text-slate-400"> — {trade.asset_name}</span>}
+        <div className="font-mono text-xs text-ink/60 dark:text-slate-400">
           {formatAmountRange(trade.amount_range_low, trade.amount_range_high)} · {formatDate(trade.transaction_date)}
           {!trade.closed && " · aún en cartera"}
         </div>
       </div>
       <div
-        className={`text-right font-semibold ${
-          isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+        className={`tabular-figures text-right font-mono font-semibold ${
+          isPositive ? "text-buy-dim dark:text-buy" : "text-sell-dim dark:text-sell"
         }`}
       >
         {formatPct(trade.return_pct)}
@@ -70,21 +58,35 @@ export default function MemberPage() {
   }, [matchKey]);
 
   if (notFound) {
-    return <p className="text-sm text-slate-500">No se encontró a este miembro.</p>;
+    return <p className="text-sm text-ink/60 dark:text-slate-400">No se encontró a este miembro.</p>;
   }
   if (!member) {
-    return <p className="text-sm text-slate-500">Cargando…</p>;
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start gap-4">
+          <Skeleton className="h-24 w-24 shrink-0 rounded-full" />
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <SkeletonRows rows={5} />
+      </div>
+    );
   }
 
   const committeeList = member.committees ? member.committees.split(", ") : [];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start gap-4">
-        <MemberPhoto member={member} />
+      <div
+        className="flex items-start gap-4 border-l-[3px] pl-4"
+        style={{ borderLeftColor: partyColor(member.party) }}
+      >
+        <Avatar photoUrl={member.photo_url} name={member.name} size={96} />
         <div>
-          <h2 className="text-2xl font-semibold">{member.name}</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <h2 className="font-serif text-2xl font-semibold">{member.name}</h2>
+          <p className="text-sm text-ink/60 dark:text-slate-400">
             {CHAMBER_LABEL[member.chamber ?? ""] ?? "—"}
             {member.party ? ` · ${PARTY_LABEL[member.party] ?? member.party}` : ""}
             {member.state ? ` · ${member.state}` : ""}
@@ -95,7 +97,7 @@ export default function MemberPage() {
               {committeeList.map((c) => (
                 <span
                   key={c}
-                  className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  className="rounded-full bg-ink/5 px-2.5 py-0.5 font-mono text-xs text-ink/70 dark:bg-slate-100/10 dark:text-slate-300"
                 >
                   {c}
                 </span>
@@ -116,15 +118,17 @@ export default function MemberPage() {
           ].map((item) => (
             <div
               key={item.label}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900"
+              className="rounded-lg border border-ink/10 bg-paper-dim p-3 dark:border-slate-100/10 dark:bg-slate-100/[0.03]"
             >
-              <p className="text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
-              <p className="mt-1 text-lg font-semibold">{item.value}</p>
+              <p className="font-mono text-[11px] uppercase tracking-wide text-ink/50 dark:text-slate-400">
+                {item.label}
+              </p>
+              <p className="tabular-figures mt-1 font-mono text-lg font-semibold">{item.value}</p>
             </div>
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        <div className="rounded-lg border border-dashed border-ink/20 p-4 text-sm text-ink/60 dark:border-slate-100/20 dark:text-slate-400">
           Sin retorno estimado calculable todavía (pocos trades cerrados en los últimos 2 años, o
           el cálculo diario aún no ha corrido para este miembro).
         </div>
@@ -132,46 +136,53 @@ export default function MemberPage() {
 
       {bestTrades.length > 0 && (
         <div>
-          <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">Mejores trades</h3>
-          <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+          <h3 className="mb-2 font-serif text-base font-semibold">Mejores trades</h3>
+          <ul className="divide-y divide-ink/10 rounded-lg border border-ink/10 dark:divide-slate-100/10 dark:border-slate-100/10">
             {bestTrades.map((t, i) => (
-              <BestTradeRow key={i} trade={t} />
+              <BestTradeRow key={i} trade={t} committees={member.committees} />
             ))}
           </ul>
         </div>
       )}
 
-      <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+      <div className="rounded-lg border border-dashed border-ink/20 p-4 text-sm text-ink/60 dark:border-slate-100/20 dark:text-slate-400">
         Gráfico de rendimiento simulado (comparado con S&P 500) — pendiente,
         backlog: simulador "qué hubiera pasado si copio a X".
       </div>
 
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <h3 className="mb-2 font-serif text-base font-semibold">
           Timeline de operaciones ({trades.length})
         </h3>
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
-          {trades.map((t) => (
-            <li key={t.id} className="flex items-center justify-between p-3 text-sm">
-              <div>
-                <span className="font-medium">
-                  {t.transaction_type === "purchase" ? "Compró" : "Vendió"}{" "}
-                  <Link to={`/tickers/${t.ticker}`} className="hover:underline">
+        <ul className="divide-y divide-ink/10 rounded-lg border border-ink/10 dark:divide-slate-100/10 dark:border-slate-100/10">
+          {trades.map((t) => {
+            const tier = highValueTier(t);
+            return (
+              <li key={t.id} className={`flex items-center justify-between p-3 text-sm ${tier ? "bg-amber-500/5" : ""}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <TransactionBadge type={t.transaction_type} />
+                  <Link to={`/tickers/${t.ticker}`} className="font-mono font-medium hover:underline">
                     ${t.ticker}
                   </Link>
-                </span>
-                {t.asset_name && (
-                  <span className="text-slate-500 dark:text-slate-400"> — {t.asset_name}</span>
-                )}
-              </div>
-              <div className="text-right text-slate-500 dark:text-slate-400">
-                <div>{formatAmountRange(t.amount_range_low, t.amount_range_high)}</div>
-                <div>{formatDate(t.transaction_date)}</div>
-              </div>
-            </li>
-          ))}
+                  <ConflictBadge match={detectConflict(t.ticker, member.committees)} />
+                  <HighValueBadge tier={tier} />
+                  {t.asset_name && (
+                    <span className="text-ink/60 dark:text-slate-400"> — {t.asset_name}</span>
+                  )}
+                </div>
+                <div
+                  className={`tabular-figures text-right font-mono ${
+                    tier ? "font-bold text-ink dark:text-slate-100" : "text-ink/60 dark:text-slate-400"
+                  }`}
+                >
+                  <div>{formatAmountRange(t.amount_range_low, t.amount_range_high)}</div>
+                  <div className="font-normal text-ink/60 dark:text-slate-400">{formatDate(t.transaction_date)}</div>
+                </div>
+              </li>
+            );
+          })}
           {trades.length === 0 && (
-            <li className="p-3 text-sm text-slate-500">Sin trades registrados todavía.</li>
+            <li className="p-3 text-sm text-ink/60 dark:text-slate-400">Sin trades registrados todavía.</li>
           )}
         </ul>
       </div>

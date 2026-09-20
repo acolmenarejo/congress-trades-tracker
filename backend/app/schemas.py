@@ -66,6 +66,7 @@ class MemberRankingOut(BaseModel):
     chamber: Optional[str] = None
     party: Optional[str] = None
     state: Optional[str] = None
+    photo_url: Optional[str] = None
     trade_count: int
     volume_estimate: float
     total_return_pct: Optional[float] = None
