@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import Member, MemberRanking, Trade, TradeReturn
+from .models import Member, MemberRanking, PolymarketAlert, Trade, TradeReturn
 from . import prices
 
 
@@ -220,6 +220,35 @@ def get_ticker_prices(db: Session, ticker: str, days: int = 180):
             "volume": row["volume"],
         }
         for row in series
+    ]
+
+
+def get_polymarket_alerts(db: Session, limit: int = 50):
+    rows = (
+        db.query(PolymarketAlert)
+        .order_by(PolymarketAlert.trade_timestamp.desc().nullslast(), PolymarketAlert.detected_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "event_title": r.event_title,
+            "market_question": r.market_question,
+            "outcome": r.outcome,
+            "side": r.side,
+            "price": r.price,
+            "size_usd": r.size_usd,
+            "liquidity_usd": r.liquidity_usd,
+            "pct_of_liquidity": r.pct_of_liquidity,
+            "wallet": r.wallet,
+            "tag": r.tag,
+            "event_slug": r.event_slug,
+            "market_slug": r.market_slug,
+            "trade_timestamp": r.trade_timestamp.isoformat() if r.trade_timestamp else None,
+            "detected_at": r.detected_at.isoformat() if r.detected_at else None,
+        }
+        for r in rows
     ]
 
 

@@ -9,6 +9,8 @@ const navItems = [
   { to: "/feed", label: "Feed" },
   { to: "/ranking", label: "Ranking" },
   { to: "/compliance", label: "Cumplimiento" },
+  { to: "/watchlist", label: "Watchlist" },
+  { to: "/polymarket", label: "Polymarket" },
 ];
 
 export default function Layout() {

@@ -5,6 +5,8 @@ import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
 import Avatar from "../components/Avatar";
+import WatchButton from "../components/WatchButton";
+import CopySimulator from "../components/CopySimulator";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
 import { detectConflict } from "../lib/conflictOfInterest";
 import { highValueTier } from "../lib/highValue";
@@ -85,7 +87,10 @@ export default function MemberPage() {
       >
         <Avatar photoUrl={member.photo_url} name={member.name} size={96} />
         <div>
-          <h2 className="font-serif text-2xl font-semibold">{member.name}</h2>
+          <h2 className="flex items-center gap-2 font-serif text-2xl font-semibold">
+            {member.name}
+            <WatchButton item={{ kind: "member", key: member.match_key, label: member.name }} size="md" />
+          </h2>
           <p className="text-sm text-ink/60 dark:text-slate-400">
             {CHAMBER_LABEL[member.chamber ?? ""] ?? "—"}
             {member.party ? ` · ${PARTY_LABEL[member.party] ?? member.party}` : ""}
@@ -145,10 +150,7 @@ export default function MemberPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-dashed border-ink/20 p-4 text-sm text-ink/60 dark:border-slate-100/20 dark:text-slate-400">
-        Gráfico de rendimiento simulado (comparado con S&P 500) — pendiente,
-        backlog: simulador "qué hubiera pasado si copio a X".
-      </div>
+      <CopySimulator trades={trades} memberName={member.name} />
 
       <div>
         <h3 className="mb-2 font-serif text-base font-semibold">

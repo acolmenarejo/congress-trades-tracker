@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api, fetchTradeSample, type Trade, type TradeFilters } from "../lib/api";
+import { api, fetchTradeSample, BASE, type Trade, type TradeFilters } from "../lib/api";
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
@@ -20,6 +20,16 @@ const FILTER_KEYS = [
   "date_from",
   "date_to",
 ] as const;
+
+function rssQuery(filters: TradeFilters): string {
+  const params = new URLSearchParams();
+  for (const key of FILTER_KEYS) {
+    const v = filters[key];
+    if (v) params.set(key, String(v));
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
 
 function filtersFromParams(params: URLSearchParams): TradeFilters {
   const f: TradeFilters = {};
@@ -164,11 +174,19 @@ export default function Feed() {
           className="rounded-md border border-ink/20 bg-paper px-2 py-1.5 text-sm dark:border-slate-100/20 dark:bg-slate-100/5"
           onChange={(e) => updateFilter("date_to", e.target.value)}
         />
+        <a
+          href={`${BASE}/feed.rss${rssQuery(filters)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto flex items-center rounded-md border border-ink/20 px-3 py-1.5 font-mono text-xs uppercase tracking-wide dark:border-slate-100/20"
+        >
+          RSS
+        </a>
         <button
           type="button"
           onClick={exportCsv}
           disabled={exporting}
-          className="ml-auto rounded-md border border-ink/20 px-3 py-1.5 font-mono text-xs uppercase tracking-wide disabled:opacity-50 dark:border-slate-100/20"
+          className="rounded-md border border-ink/20 px-3 py-1.5 font-mono text-xs uppercase tracking-wide disabled:opacity-50 dark:border-slate-100/20"
         >
           {exporting ? "Exportando…" : "Exportar CSV ↓"}
         </button>

@@ -135,6 +135,34 @@ class TelegramWatch(Base):
     )
 
 
+class PolymarketAlert(Base):
+    """A single unusually large trade on a political/policy Polymarket
+    market whose outcome isn't yet publicly known (price reflects real
+    uncertainty, not near-consensus). Not linked to any person — Polymarket
+    wallets are pseudonymous, there's no public wallet-to-identity mapping.
+    This is a personal "someone is betting big on something uncertain"
+    signal, not a congress-trades feature. See app/polymarket.py."""
+
+    __tablename__ = "polymarket_alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tx_hash = Column(String, unique=True, index=True, nullable=False)
+    event_title = Column(String, nullable=False)
+    market_question = Column(String, nullable=False)
+    outcome = Column(String, nullable=True)
+    side = Column(String, nullable=True)  # BUY | SELL
+    price = Column(Float, nullable=True)
+    size_usd = Column(Float, nullable=False)
+    liquidity_usd = Column(Float, nullable=True)
+    pct_of_liquidity = Column(Float, nullable=True)
+    wallet = Column(String, nullable=True)
+    tag = Column(String, nullable=True)  # which curated tag matched (congress, elections, ...)
+    event_slug = Column(String, nullable=True)
+    market_slug = Column(String, nullable=True)
+    trade_timestamp = Column(DateTime, nullable=True)
+    detected_at = Column(DateTime, server_default=func.now())
+
+
 class TelegramState(Base):
     """Tiny key-value store, e.g. the last processed Telegram update_id."""
 

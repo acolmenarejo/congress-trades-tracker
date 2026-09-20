@@ -99,3 +99,21 @@ class TickerSummaryOut(BaseModel):
     buy_count: int
     sell_count: int
     trades: list[TradeOut]
+
+
+class PolymarketAlertOut(BaseModel):
+    id: int
+    event_title: str
+    market_question: str
+    outcome: Optional[str] = None
+    side: Optional[str] = None
+    price: Optional[float] = None
+    size_usd: float
+    liquidity_usd: Optional[float] = None
+    pct_of_liquidity: Optional[float] = None
+    wallet: Optional[str] = None
+    tag: Optional[str] = None
+    event_slug: Optional[str] = None
+    market_slug: Optional[str] = None
+    trade_timestamp: Optional[str] = None
+    detected_at: Optional[str] = None

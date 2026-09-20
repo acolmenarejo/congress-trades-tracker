@@ -1,6 +1,6 @@
 // In dev, Vite proxies /api to the local backend (see vite.config.ts). In
 // production, set VITE_API_BASE to the deployed backend's public URL.
-const BASE = import.meta.env.VITE_API_BASE || "/api";
+export const BASE = import.meta.env.VITE_API_BASE || "/api";
 
 export interface Trade {
   id: number;
@@ -110,6 +110,24 @@ export interface TickerSummary {
   trades: Trade[];
 }
 
+export interface PolymarketAlert {
+  id: number;
+  event_title: string;
+  market_question: string;
+  outcome: string | null;
+  side: string | null;
+  price: number | null;
+  size_usd: number;
+  liquidity_usd: number | null;
+  pct_of_liquidity: number | null;
+  wallet: string | null;
+  tag: string | null;
+  event_slug: string | null;
+  market_slug: string | null;
+  trade_timestamp: string | null;
+  detected_at: string | null;
+}
+
 export interface TradeFilters {
   member?: string;
   ticker?: string;
@@ -173,4 +191,6 @@ export const api = {
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),
   tickerPrices: (ticker: string, days = 180) =>
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
+  polymarketWhaleBets: (limit = 50) =>
+    getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
 };

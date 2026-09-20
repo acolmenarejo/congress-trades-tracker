@@ -6,6 +6,7 @@ import CandlestickChart from "../components/charts/CandlestickChart";
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
+import WatchButton from "../components/WatchButton";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
 import { useCommitteesForMembers } from "../hooks/useCommittees";
 import { detectConflict } from "../lib/conflictOfInterest";
@@ -78,8 +79,9 @@ export default function TickerPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-serif text-2xl font-semibold">
+        <h2 className="flex items-center gap-2 font-serif text-2xl font-semibold">
           <span className="font-mono">${summary.ticker}</span>
+          <WatchButton item={{ kind: "ticker", key: summary.ticker, label: summary.ticker }} size="md" />
         </h2>
         <p className="font-mono text-sm text-ink/60 dark:text-slate-400">
           {summary.trade_count} trades · {summary.distinct_members} congresistas ·{" "}
