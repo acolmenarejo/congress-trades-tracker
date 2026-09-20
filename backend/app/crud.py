@@ -36,6 +36,13 @@ def list_trades(
         q = q.filter(Trade.transaction_date >= date_from)
     if date_to:
         q = q.filter(Trade.transaction_date <= date_to)
+    else:
+        # A handful of source records have a corrupted (future) transaction_date
+        # — e.g. a parsing bug swapping fields. Left alone, one of those jumps
+        # to the top of "most recent" and breaks date-axis charts. Only applied
+        # when the caller didn't ask for a specific range, so it stays
+        # reachable via an explicit date_to/ticker/member filter for debugging.
+        q = q.filter(Trade.transaction_date <= date.today())
 
     total = q.count()
     items = (
