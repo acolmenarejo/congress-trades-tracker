@@ -135,6 +135,27 @@ class TelegramWatch(Base):
     )
 
 
+class EarningsCache(Base):
+    """One row per (ticker, earnings date) — fetched once from FMP and
+    reused, mirroring PriceCache's pattern (see app/prices.py)."""
+
+    __tablename__ = "earnings_cache"
+
+    ticker = Column(String, primary_key=True)
+    date = Column(Date, primary_key=True)
+
+
+class EarningsSkip(Base):
+    """Tickers FMP's free plan won't serve earnings for (HTTP 402) or that
+    genuinely have none — remembered so scan_earnings.py doesn't burn its
+    daily fetch budget retrying the same permanently-blocked ticker."""
+
+    __tablename__ = "earnings_skip"
+
+    ticker = Column(String, primary_key=True)
+    checked_at = Column(DateTime, server_default=func.now())
+
+
 class PolymarketAlert(Base):
     """A single unusually large trade on a political/policy Polymarket
     market whose outcome isn't yet publicly known (price reflects real

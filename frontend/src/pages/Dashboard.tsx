@@ -7,7 +7,9 @@ import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import ConflictWatchCard from "../components/ConflictWatchCard";
 import BigTradesCard from "../components/BigTradesCard";
+import SoloMoversCard from "../components/SoloMoversCard";
 import HighValueBadge from "../components/HighValueBadge";
+import OptionBadge from "../components/OptionBadge";
 import WatchlistTeaser from "../components/WatchlistTeaser";
 import PolymarketTeaser from "../components/PolymarketTeaser";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
@@ -102,6 +104,7 @@ export default function Dashboard() {
                     {t.member_name}
                   </Link>
                   <TransactionBadge type={t.transaction_type} />
+                  <OptionBadge assetType={t.asset_type} />
                   <span className="font-mono text-slate-500 dark:text-slate-400">${t.ticker}</span>
                   <ConflictBadge match={detectConflict(t.ticker, recentCommittees[t.member_match_key] ?? null)} />
                   <HighValueBadge tier={tier} />
@@ -121,6 +124,8 @@ export default function Dashboard() {
       </div>
 
       <ConflictWatchCard trades={trades} />
+
+      <SoloMoversCard trades={trades} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <WatchlistTeaser />

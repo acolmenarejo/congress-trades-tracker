@@ -178,6 +178,13 @@ def get_ticker_prices(ticker: str, days: int = Query(180, le=1825), db: Session 
     return crud.get_ticker_prices(db, ticker, days=days)
 
 
+@app.get("/tickers/{ticker}/earnings")
+def get_ticker_earnings(ticker: str, db: Session = Depends(get_db)):
+    """Cached earnings dates for a ticker (see app/earnings.py) — the
+    frontend computes "days to nearest earnings" per trade client-side."""
+    return crud.get_earnings_dates(db, ticker)
+
+
 @app.get("/polymarket/whale-bets", response_model=list[PolymarketAlertOut])
 def get_polymarket_whale_bets(limit: int = Query(50, le=200), db: Session = Depends(get_db)):
     """Unusually large single trades on political/policy Polymarket markets

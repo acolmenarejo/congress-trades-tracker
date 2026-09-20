@@ -4,6 +4,8 @@ import { api, fetchTradeSample, BASE, type Trade, type TradeFilters } from "../l
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
+import OptionBadge from "../components/OptionBadge";
+import LogDecisionButton from "../components/LogDecisionButton";
 import { SkeletonRows } from "../components/Skeleton";
 import { useCommitteesForMembers } from "../hooks/useCommittees";
 import { detectConflict } from "../lib/conflictOfInterest";
@@ -204,6 +206,7 @@ export default function Feed() {
               <th className="px-3 py-2">Fecha op.</th>
               <th className="px-3 py-2">Disclosure</th>
               <th className="px-3 py-2">Retraso</th>
+              <th className="px-3 py-2">Mío</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-ink/10 dark:divide-slate-100/10">
@@ -234,7 +237,10 @@ export default function Feed() {
                   </Link>
                 </td>
                 <td className="px-3 py-2">
-                  <TransactionBadge type={t.transaction_type} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <TransactionBadge type={t.transaction_type} />
+                    <OptionBadge assetType={t.asset_type} />
+                  </div>
                 </td>
                 <td className={`tabular-figures px-3 py-2 font-mono ${tier ? "font-bold" : ""}`}>
                   {formatAmountRange(t.amount_range_low, t.amount_range_high)}
@@ -243,6 +249,9 @@ export default function Feed() {
                 <td className="px-3 py-2 font-mono text-ink/60 dark:text-slate-400">{formatDate(t.disclosure_date)}</td>
                 <td className="px-3 py-2 font-mono text-ink/60 dark:text-slate-400">
                   {t.disclosure_lag_days !== null ? `${t.disclosure_lag_days}d` : "—"}
+                </td>
+                <td className="px-3 py-2">
+                  <LogDecisionButton trade={t} />
                 </td>
               </tr>
               );

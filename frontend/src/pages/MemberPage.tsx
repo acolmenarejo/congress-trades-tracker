@@ -4,6 +4,7 @@ import { api, type Member, type MemberBestTrade, type Trade } from "../lib/api";
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
+import OptionBadge from "../components/OptionBadge";
 import Avatar from "../components/Avatar";
 import WatchButton from "../components/WatchButton";
 import CopySimulator from "../components/CopySimulator";
@@ -163,6 +164,7 @@ export default function MemberPage() {
               <li key={t.id} className={`flex items-center justify-between p-3 text-sm ${tier ? "bg-amber-500/5" : ""}`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <TransactionBadge type={t.transaction_type} />
+                  <OptionBadge assetType={t.asset_type} />
                   <Link to={`/tickers/${t.ticker}`} className="font-mono font-medium hover:underline">
                     ${t.ticker}
                   </Link>

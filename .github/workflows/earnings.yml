@@ -1,0 +1,41 @@
+name: Cache earnings dates
+
+on:
+  schedule:
+    # Daily — new tickers trickle in slowly (whatever gets traded that day),
+    # and each ticker is only ever fetched once (its full earnings history
+    # in one call), so there's no need to run this more often.
+    - cron: "45 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Cache earnings dates
+        working-directory: backend/earnings
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+        run: python scan_earnings.py
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/congress_trades.db
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: refresh earnings cache [skip ci]"
+          git pull --rebase --autostash
+          git push

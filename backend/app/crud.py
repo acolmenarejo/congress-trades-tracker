@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import Member, MemberRanking, PolymarketAlert, Trade, TradeReturn
-from . import prices
+from . import earnings, prices
 
 
 def list_trades(
@@ -250,6 +250,10 @@ def get_polymarket_alerts(db: Session, limit: int = 50):
         }
         for r in rows
     ]
+
+
+def get_earnings_dates(db: Session, ticker: str) -> list[str]:
+    return earnings.get_earnings_dates(db, ticker.upper())
 
 
 def global_kpis(db: Session):

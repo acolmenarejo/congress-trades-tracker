@@ -11,6 +11,7 @@ const navItems = [
   { to: "/compliance", label: "Cumplimiento" },
   { to: "/watchlist", label: "Watchlist" },
   { to: "/polymarket", label: "Polymarket" },
+  { to: "/mi-seguimiento", label: "Mi seguimiento" },
 ];
 
 export default function Layout() {

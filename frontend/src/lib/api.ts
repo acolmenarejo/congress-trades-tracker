@@ -193,4 +193,5 @@ export const api = {
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
   polymarketWhaleBets: (limit = 50) =>
     getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
+  tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
 };

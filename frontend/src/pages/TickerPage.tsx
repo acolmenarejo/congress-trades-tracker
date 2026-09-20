@@ -6,11 +6,15 @@ import CandlestickChart from "../components/charts/CandlestickChart";
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
+import OptionBadge from "../components/OptionBadge";
+import LogDecisionButton from "../components/LogDecisionButton";
 import WatchButton from "../components/WatchButton";
+import EarningsBadge from "../components/EarningsBadge";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
 import { useCommitteesForMembers } from "../hooks/useCommittees";
 import { detectConflict } from "../lib/conflictOfInterest";
 import { highValueTier } from "../lib/highValue";
+import { nearestEarningsGapDays } from "../lib/earnings";
 import { formatAmountRange, formatDate, partyColor } from "../lib/format";
 
 const MAX_DAYS = 1825; // backend cap (5 years)
@@ -29,11 +33,13 @@ export default function TickerPage() {
   const [prices, setPrices] = useState<PricePoint[]>([]);
   const [days, setDays] = useState(180);
   const [notFound, setNotFound] = useState(false);
+  const [earningsDates, setEarningsDates] = useState<string[]>([]);
   const committees = useCommitteesForMembers((summary?.trades ?? []).map((t) => t.member_match_key));
 
   useEffect(() => {
     if (!ticker) return;
     api.ticker(ticker).then(setSummary).catch(() => setNotFound(true));
+    api.tickerEarnings(ticker).then(setEarningsDates).catch(() => setEarningsDates([]));
   }, [ticker]);
 
   useEffect(() => {
@@ -151,11 +157,13 @@ export default function TickerPage() {
                 <th className="px-3 py-2">Tipo</th>
                 <th className="px-3 py-2">Importe</th>
                 <th className="px-3 py-2">Fecha</th>
+                <th className="px-3 py-2">Mío</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-ink/10 dark:divide-slate-100/10">
               {summary.trades.map((t) => {
                 const tier = highValueTier(t);
+                const gapDays = t.transaction_date ? nearestEarningsGapDays(earningsDates, t.transaction_date) : null;
                 return (
                   <tr
                     key={t.id}
@@ -169,15 +177,22 @@ export default function TickerPage() {
                         </Link>
                         <ConflictBadge match={detectConflict(t.ticker, committees[t.member_match_key] ?? null)} />
                         <HighValueBadge tier={tier} />
+                        <EarningsBadge gapDays={gapDays} />
                       </div>
                     </td>
                     <td className="px-3 py-2">
-                      <TransactionBadge type={t.transaction_type} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <TransactionBadge type={t.transaction_type} />
+                        <OptionBadge assetType={t.asset_type} />
+                      </div>
                     </td>
                     <td className={`tabular-figures px-3 py-2 font-mono ${tier ? "font-bold" : ""}`}>
                       {formatAmountRange(t.amount_range_low, t.amount_range_high)}
                     </td>
                     <td className="px-3 py-2 font-mono text-ink/60 dark:text-slate-400">{formatDate(t.transaction_date)}</td>
+                    <td className="px-3 py-2">
+                      <LogDecisionButton trade={t} />
+                    </td>
                   </tr>
                 );
               })}
