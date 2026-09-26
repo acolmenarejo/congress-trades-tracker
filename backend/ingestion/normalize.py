@@ -77,10 +77,28 @@ def normalize_transaction_type(raw: Optional[str]) -> Optional[str]:
 
 _AMOUNT_NUM_RE = re.compile(r"[\d,]+(?:\.\d+)?")
 
+# STOCK Act reporting bands, keyed by their lower bound. The House mirror's
+# PDF-to-text step drops the second line when a band wraps in the PDF, leaving
+# just "$15,001" — expanding it back to the full band keeps unique_id identical
+# to FMP's clean "$15,001 - $50,000" for the same trade (otherwise the same
+# trade gets stored, and alerted, twice).
+_STOCK_ACT_BANDS = {
+    1_001: 15_000,
+    15_001: 50_000,
+    50_001: 100_000,
+    100_001: 250_000,
+    250_001: 500_000,
+    500_001: 1_000_000,
+    1_000_001: 5_000_000,
+    5_000_001: 25_000_000,
+    25_000_001: 50_000_000,
+}
+
 
 def parse_amount_range(raw: Optional[str]) -> Tuple[Optional[float], Optional[float]]:
     """Parse strings like '$1,001 - $15,000', 'Over $50,000,000', '$1,000,000 +',
-    'Unknown' into (low, high)."""
+    'Unknown' into (low, high). A lone band lower bound ('$15,001') is expanded
+    to its full STOCK Act band."""
     if not raw:
         return None, None
     text = raw.strip()
@@ -92,6 +110,8 @@ def parse_amount_range(raw: Optional[str]) -> Tuple[Optional[float], Optional[fl
     if len(numbers) == 1:
         if "over" in text.lower() or "+" in text:
             return numbers[0], None
+        if numbers[0] in _STOCK_ACT_BANDS:
+            return numbers[0], float(_STOCK_ACT_BANDS[numbers[0]])
         return numbers[0], numbers[0]
     return numbers[0], numbers[1]
 

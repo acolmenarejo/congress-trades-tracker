@@ -152,12 +152,39 @@ def apply_enrichment(row: dict, enrichment: dict) -> None:
     row["committees"] = entry["committees"]
 
 
+def find_same_trade(db, row: dict) -> Trade | None:
+    """Cross-source fallback when unique_id doesn't match: the same filing line
+    reported by two sources that disagree on the amount's upper bound (the House
+    mirror truncates wrapped amounts, see normalize._STOCK_ACT_BANDS). Matches on
+    everything except the upper bound, and requires the same filing PDF when
+    both sides have one."""
+    if not row.get("transaction_date") or row.get("amount_range_low") is None:
+        return None
+    candidates = (
+        db.query(Trade)
+        .filter_by(
+            member_match_key=row["member_match_key"],
+            ticker=row["ticker"],
+            transaction_type=row["transaction_type"],
+            transaction_date=row["transaction_date"],
+            amount_range_low=row["amount_range_low"],
+        )
+        .all()
+    )
+    for candidate in candidates:
+        if not candidate.filing_url or not row.get("filing_url") or candidate.filing_url == row["filing_url"]:
+            return candidate
+    return None
+
+
 def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
     """Returns True if a new row was inserted, False if it already existed (and was refreshed)."""
     unique_id = row["unique_id"]
     existing = trade_cache.get(unique_id)
     if existing is None:
         existing = db.query(Trade).filter_by(unique_id=unique_id).one_or_none()
+    if existing is None:
+        existing = find_same_trade(db, row)
 
     if existing is None:
         trade_fields = {k: v for k, v in row.items() if k not in ("district", "bioguide_id", "committees")}
@@ -167,10 +194,19 @@ def upsert_trade(db, row: dict, trade_cache: dict) -> bool:
         return True
 
     # Refresh fields that might improve over time (e.g. a later source fills disclosure_date).
-    for field in ("disclosure_date", "disclosure_lag_days", "filing_url", "asset_name", "asset_type", "party", "state"):
+    for field in ("disclosure_date", "disclosure_lag_days", "filing_url", "asset_name", "asset_type", "party", "state", "owner"):
         new_value = row.get(field)
-        if new_value is not None and getattr(existing, field) is None:
+        if new_value not in (None, "") and getattr(existing, field) in (None, ""):
             setattr(existing, field, new_value)
+    # Repair a band that was stored truncated ("$15,001" → 15001-15001).
+    if (
+        existing.amount_range_low is not None
+        and existing.amount_range_high == existing.amount_range_low
+        and row.get("amount_range_high") is not None
+        and row["amount_range_high"] > existing.amount_range_high
+    ):
+        existing.amount_range_high = row["amount_range_high"]
+        existing.amount_mid = row["amount_mid"]
     trade_cache[unique_id] = existing
     return False
 
