@@ -38,10 +38,24 @@ jobs:
         run: python scan_insiders.py --force
 
       - name: Commit updated database
+        # Retry loop instead of a plain rebase: the scan takes minutes, so
+        # another workflow often pushes the DB meanwhile, and a binary SQLite
+        # can't be rebased. On conflict, take the remote DB and re-apply only
+        # the tables this workflow owns (backend/tools/merge_tables.py).
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add backend/data/congress_trades.db
-          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: insider purchases [skip ci]"
-          git pull --rebase --autostash
-          git push
+          DB=backend/data/congress_trades.db
+          for attempt in 1 2 3 4 5; do
+            git add $DB
+            git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+            git commit -q -m "chore: insider purchases [skip ci]"
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            cp $DB /tmp/ours.db
+            git fetch -q origin master
+            git reset -q --hard origin/master
+            python backend/tools/merge_tables.py /tmp/ours.db $DB insider_trades "telegram_state:key LIKE 'insiders%'"
+            sleep $((attempt * 5))
+          done
+          exit 1
