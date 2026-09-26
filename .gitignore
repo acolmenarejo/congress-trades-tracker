@@ -19,3 +19,6 @@ backend/data/*.db-journal
 .netlify
 
 .vercel
+
+# Setup backtest local price cache
+backend/setups/.cache/

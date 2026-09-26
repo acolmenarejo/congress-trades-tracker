@@ -191,3 +191,50 @@ class TelegramState(Base):
 
     key = Column(String, primary_key=True)
     value = Column(String, nullable=True)
+
+
+class InsiderTrade(Base):
+    """Open-market purchase (Form 4, transaction code P) by a company insider,
+    aggregated per filing. Only purchases are stored: insiders sell for many
+    reasons (taxes, diversification, 10b5-1 plans), but buy for one. See
+    app/insiders.py."""
+
+    __tablename__ = "insider_trades"
+
+    accession = Column(String, primary_key=True)  # SEC accession number, one per filing
+    ticker = Column(String, index=True, nullable=False)
+    issuer_name = Column(String, nullable=True)
+    insider_name = Column(String, nullable=False)
+    insider_cik = Column(String, index=True, nullable=True)
+    role = Column(String, nullable=True)  # "CEO", "Director", "10% owner"...
+    is_officer = Column(Boolean, default=False)
+    is_director = Column(Boolean, default=False)
+    is_ten_pct = Column(Boolean, default=False)
+    transaction_date = Column(Date, index=True, nullable=True)
+    filed_at = Column(DateTime, index=True, nullable=True)
+    shares = Column(Float, nullable=False)
+    avg_price = Column(Float, nullable=True)
+    value_usd = Column(Float, nullable=False)
+    shares_after = Column(Float, nullable=True)
+    notified = Column(Boolean, nullable=False, default=False, server_default="0")
+    detected_at = Column(DateTime, server_default=func.now())
+
+
+class SetupSignal(Base):
+    """A technical setup alert that was sent (app/setups.py), kept so the
+    same ticker isn't re-alerted every day and so live hit-rate can be
+    measured later against what the backtest promised."""
+
+    __tablename__ = "setup_signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticker = Column(String, index=True, nullable=False)
+    direction = Column(String, nullable=False)  # long | short
+    signal_date = Column(Date, index=True, nullable=False)
+    score = Column(Float, nullable=False)
+    entry = Column(Float, nullable=False)
+    stop = Column(Float, nullable=False)
+    target = Column(Float, nullable=False)
+    reasons = Column(String, nullable=True)
+    outcome = Column(String, nullable=True)  # target | stop | time — filled in later
+    created_at = Column(DateTime, server_default=func.now())

@@ -1,0 +1,47 @@
+name: Scan insider purchases (SEC Form 4)
+
+on:
+  schedule:
+    # GitHub's schedule lags a lot at short intervals, which is acceptable
+    # here: Form 4s are themselves filed up to 2 business days after the buy.
+    # Kept out of bot-poll.yml on purpose — a scan can take minutes and would
+    # make overlapping bot runs fight over pushing the SQLite file.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: insiders
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Scan Form 4 purchases and alert
+        working-directory: backend/insiders
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: python scan_insiders.py --force
+
+      - name: Commit updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/congress_trades.db
+          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: insider purchases [skip ci]"
+          git pull --rebase --autostash
+          git push

@@ -136,6 +136,24 @@ Pendiente de mejora (pedido explícitamente, no empezado): calidad de datos
 más allá de lo ya arreglado (bioguide_id, comités, mojibake del guion largo),
 y revisión general de mejoras de frontend.
 
+## Alertas técnicas y de directivos (2026-09-26)
+
+- `app/setups.py` + `setups.yml` (diario tras cierre): score 0-100 (acumulación
+  tipo Konkorde, momentum, compresión, volumen, flujo del Congreso). Solo se
+  alerta **largo con score ≥ 70** (máx. 3/día, 1 por ticker cada 30 días) con
+  entrada/objetivo/stop por ATR. Backtest en `backend/setups/backtest.py`
+  (necesita pandas, no está en requirements a propósito; caché de precios en
+  `backend/setups/.cache/`, gitignorada) → `backtest_report.md`. Resultado:
+  ~0,6 señales/semana, +1,5%/operación, positivo todos los años; los cortos
+  pierden dinero en todos los niveles, por eso no se alertan. No reajustar
+  pesos mirando el backtest sin separar in/out-of-sample.
+- `app/insiders.py` + `insiders.yml` (cada 30 min, con `concurrency`): compras
+  en mercado abierto (Form 4, código P) de SEC EDGAR. SEC exige email en el
+  User-Agent → secreto `SEC_USER_AGENT`. Fuera de `bot-poll.yml` a propósito:
+  un escaneo tarda minutos y solaparía pushes del SQLite.
+- Ambas alertas van a **todos** los suscriptores, no dependen de la watchlist.
+  `SetupSignal` guarda cada señal enviada para medir el acierto en vivo.
+
 ## Backlog (ver README.md para la lista completa)
 
 Notas rápidas de lo no implementado: digest diario/telegram, comparativa
