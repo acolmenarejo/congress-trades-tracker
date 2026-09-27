@@ -40,3 +40,21 @@ def send_message(chat_id: int, text: str, parse_mode: str = "HTML") -> bool:
     except Exception:
         logger.exception("telegram_api: sendMessage to %s raised", chat_id)
         return False
+
+
+def send_photo(chat_id: int, png: bytes, caption: str, parse_mode: str = "HTML") -> bool:
+    """Photo with an HTML caption (Telegram caps captions at 1024 chars)."""
+    try:
+        resp = requests.post(
+            f"{TELEGRAM_API_BASE}/sendPhoto",
+            data={"chat_id": chat_id, "caption": caption, "parse_mode": parse_mode},
+            files={"photo": ("chart.png", png, "image/png")},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            logger.warning("telegram_api: sendPhoto to %s failed: %s", chat_id, resp.text)
+            return False
+        return True
+    except Exception:
+        logger.exception("telegram_api: sendPhoto to %s raised", chat_id)
+        return False

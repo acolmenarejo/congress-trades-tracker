@@ -244,20 +244,24 @@ def score(f: dict, direction: str) -> Setup:
 
     # --- Accumulation / distribution (Konkorde-style proxies)
     acc = 0.0
+    acc_hits: list[str] = []
     cmf = f["cmf"] * s
     acc += 10 * _clip(cmf / 0.15)
     if cmf > 0.05:
-        reasons.append(f"CMF(20) {f['cmf']:+.2f}: {'entrada' if s > 0 else 'salida'} de dinero sostenida")
+        acc_hits.append("CMF")
     obv = f["obv_slope"] * s
     acc += 8 * _clip(obv / 0.3)
     if obv > 0.1:
-        reasons.append(f"OBV {'subiendo' if s > 0 else 'cayendo'} ({'acumulación' if s > 0 else 'distribución'} en volumen)")
+        acc_hits.append("OBV")
     if f["nvi_above"] == (s > 0):
         acc += 6
-        reasons.append(f"NVI {'sobre' if s > 0 else 'bajo'} su media anual ('manos fuertes' {'compradoras' if s > 0 else 'vendedoras'})")
+        acc_hits.append("NVI")
     mfi = f["mfi"]
     if (s > 0 and 50 <= mfi <= 80) or (s < 0 and 20 <= mfi <= 50):
         acc += 6
+    if acc_hits:
+        strength = "fuerte " if len(acc_hits) >= 2 else ""
+        reasons.insert(0, f"{'Entrada' if s > 0 else 'Salida'} de dinero {strength}({', '.join(acc_hits)})")
     blocks["acumulacion" if s > 0 else "distribucion"] = acc
 
     # --- Momentum / trend
@@ -265,39 +269,39 @@ def score(f: dict, direction: str) -> Setup:
     c, s50, s200 = f["close"], f["sma50"], f["sma200"]
     if (s > 0 and c > s50 > s200) or (s < 0 and c < s50 < s200):
         mom += 10
-        reasons.append(f"Tendencia {'alcista' if s > 0 else 'bajista'}: precio {'>' if s > 0 else '<'} SMA50 {'>' if s > 0 else '<'} SMA200")
+        reasons.append(f"Tendencia {'alcista' if s > 0 else 'bajista'} sólida")
     elif (s > 0 and c > s50) or (s < 0 and c < s50):
         mom += 5
     rsi = f["rsi"]
     if (s > 0 and 50 <= rsi <= 70) or (s < 0 and 30 <= rsi <= 50):
         mom += 8
-        reasons.append(f"RSI {rsi:.0f}: momentum {'alcista' if s > 0 else 'bajista'} sin estar {'sobrecomprado' if s > 0 else 'sobrevendido'}")
+        reasons.append(f"RSI {rsi:.0f}: fuerza sin {'sobrecompra' if s > 0 else 'sobreventa'}")
     elif (s > 0 and rsi > 75) or (s < 0 and rsi < 25):
-        risks.append(f"RSI {rsi:.0f}: {'sobrecompra' if s > 0 else 'sobreventa'}, riesgo de rebote en contra")
+        risks.append(f"RSI {rsi:.0f}, {'sobrecomprado' if s > 0 else 'sobrevendido'}")
     if f["rs60"] is not None:
         rs = f["rs60"] * s
         mom += 7 * _clip(rs / 0.15)
         if rs > 0.05:
-            reasons.append(f"{'Bate' if s > 0 else 'Pierde contra'} al S&P 500 por {abs(f['rs60']) * 100:.0f} pts en 3 meses")
+            reasons.append(f"{'Bate' if s > 0 else 'Pierde contra'} al S&P 500 ({f['rs60'] * 100:+.0f} pts en 3 meses)")
     if s > 0 and f["dist_hi52"] >= 0.92:
         mom += 5
-        reasons.append(f"A {(1 - f['dist_hi52']) * 100:.0f}% de máximos de 52 semanas")
+        reasons.append(f"Cerca de máximos anuales (a {(1 - f['dist_hi52']) * 100:.0f}%)")
     elif s < 0 and f["dist_lo52"] <= 1.08:
         mom += 5
-        reasons.append(f"A {(f['dist_lo52'] - 1) * 100:.0f}% de mínimos de 52 semanas")
+        reasons.append(f"Cerca de mínimos anuales (a {(f['dist_lo52'] - 1) * 100:.0f}%)")
     blocks["momentum"] = mom
 
     # --- Volatility squeeze (setup for expansion, direction-agnostic)
     sq = 10 * _clip((0.35 - f["bbw_pct"]) / 0.35)
     if f["bbw_pct"] <= 0.2:
-        reasons.append("Bandas de Bollinger comprimidas (posible ruptura)")
+        reasons.append("Volatilidad comprimida: posible ruptura")
     blocks["compresion"] = sq
 
     # --- Volume confirmation
     vol = 0.0
     if f["rel_vol"] >= 1.2 and (f["ret20"] * s) > 0:
         vol = 10 * _clip((f["rel_vol"] - 1) / 0.8)
-        reasons.append(f"Volumen reciente x{f['rel_vol']:.1f} sobre su media, a favor del movimiento")
+        reasons.append(f"Volumen x{f['rel_vol']:.1f} sobre su media")
     blocks["volumen"] = vol
 
     # --- Congress flow (our own data)
@@ -306,13 +310,13 @@ def score(f: dict, direction: str) -> Setup:
     net = same - other
     if net > 0:
         cong = min(20.0, 8.0 * net)
-        reasons.append(f"{same} congresista(s) {'comprando' if s > 0 else 'vendiendo'} en los últimos 30 días")
+        reasons.insert(0, f"{same} {'congresista' if same == 1 else 'congresistas'} {'comprando' if s > 0 else 'vendiendo'} (30 días)")
     elif net < 0:
-        risks.append(f"{other} congresista(s) en sentido contrario en 30 días")
+        risks.append(f"{other} {'congresista' if other == 1 else 'congresistas'} en sentido contrario")
     blocks["congreso"] = cong
 
     if f["dollar_vol"] < MIN_DOLLAR_VOLUME:
-        risks.append(f"Liquidez baja: ${f['dollar_vol'] / 1e6:.0f}M/día")
+        risks.append(f"Poca liquidez (${f['dollar_vol'] / 1e6:.0f}M/día)")
 
     return Setup(direction, round(sum(blocks.values()), 1), blocks, reasons, risks)
 
@@ -340,42 +344,107 @@ def trade_plan(f: dict, direction: str, stop_atr: float = STOP_ATR, target_atr: 
 # ---------------------------------------------------------------- alert text
 
 def _fmt_price(x: float) -> str:
-    return f"${x:,.2f}" if x >= 1 else f"${x:.4f}"
+    return f"${x:,.0f}" if x >= 100 else f"${x:,.2f}"
+
+
+def _score_bar(score: float) -> str:
+    filled = round(score / 10)
+    return "▰" * filled + "▱" * (10 - filled)
 
 
 def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> str:
-    """Telegram HTML message: direction, why, and the concrete plan."""
+    """Short Telegram HTML caption (fits the 1024-char photo caption limit):
+    headline, the plan as an aligned block, and the top reasons."""
     import html
 
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
     plan = trade_plan(f, st.direction)
     long_ = st.direction == "long"
     c = plan["entry"]
-    head = "📈 <b>POSIBLE SUBIDA</b>" if long_ else "📉 <b>POSIBLE BAJADA</b>"
-    title = f"<b>{html.escape(ticker, quote=False)}</b>" + (f" — {html.escape(name, quote=False)}" if name else "")
-    blocks = " · ".join(f"{k} {v:.0f}" for k, v in st.blocks.items() if v > 0)
+    pct = lambda x: f"{(x / c - 1) * 100:+.0f}%"  # noqa: E731
+
+    rows = [
+        ("Entrada", _fmt_price(c), f"máx {_fmt_price(plan['entry_max'])}"),
+        ("Objetivo", _fmt_price(plan["target"]), pct(plan["target"])),
+        ("Stop", _fmt_price(plan["stop"]), pct(plan["stop"])),
+    ]
+    w = max(len(r[1]) for r in rows)
+    table = "\n".join(f"{label:<9}{price:>{w}}  {extra}" for label, price, extra in rows)
 
     lines = [
-        f"{head}  {title}",
-        f"Score {st.score:.0f}/100  ({blocks})",
+        f"{'📈' if long_ else '📉'} <b>{e(ticker)}</b>" + (f" · {e(name)}" if name else ""),
+        f"{'Posible subida' if long_ else 'Posible bajada'} · <b>{st.score:.0f}</b>/100 {_score_bar(st.score)}",
         "",
-        "<b>Por qué:</b>",
-        *[f"• {html.escape(r, quote=False)}" for r in st.reasons],
-    ]
-    if st.risks:
-        lines += ["", "<b>Riesgos:</b>", *[f"⚠️ {html.escape(r, quote=False)}" for r in st.risks]]
-    pct = lambda x: f"{(x / c - 1) * 100:+.1f}%"  # noqa: E731
-    lines += [
+        f"<pre>{e(table)}</pre>",
+        f"⏱ ~1 mes · gana {plan['risk_reward']:.1f}× lo que arriesga",
         "",
-        f"<b>Plan ({'compra' if long_ else 'venta/corto'}, horizonte ~{plan['horizon_bars']} sesiones):</b>",
-        f"🎯 Entrada: {_fmt_price(c)} (no perseguir por {'encima' if long_ else 'debajo'} de {_fmt_price(plan['entry_max'])})",
-        f"✅ {'Venta' if long_ else 'Recompra'} objetivo: {_fmt_price(plan['target'])} ({pct(plan['target'])})",
-        f"🛑 Stop: {_fmt_price(plan['stop'])} ({pct(plan['stop'])})",
-        f"Ratio beneficio/riesgo {plan['risk_reward']:.1f} · ATR {f['atr_pct'] * 100:.1f}% · liquidez ${f['dollar_vol'] / 1e6:,.0f}M/día",
+        *[f"✓ {e(r)}" for r in st.reasons[:4]],
+        *[f"⚠ {e(r)}" for r in st.risks[:2]],
         "",
-        "📚 Backtest 2020-2026 (score ≥ 70): ~40% llegan al objetivo, ~42% al stop, resto cierra a 20 sesiones; +1,5% medio por operación.",
-        "<i>Señal técnica automática, no es asesoramiento financiero.</i>",
+        "<i>Señal automática · no es asesoramiento</i>",
     ]
     return "\n".join(lines)
+
+
+def render_chart(ticker: str, bars: list[dict], f: dict, direction: str = "long") -> bytes | None:
+    """PNG: last ~4 months of closes + SMA50, with the plan drawn as a
+    green (target) / red (stop) zone projected ~1 month ahead.
+    matplotlib is imported lazily and installed only in setups.yml — it's not
+    in requirements.txt, which Vercel also installs."""
+    try:
+        import io
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return None
+
+    plan = trade_plan(f, direction)
+    closes = [b["close"] for b in bars]
+    sma50 = _sma(closes, 50)
+    n = min(90, len(bars))
+    xs = list(range(n))
+    ys = closes[-n:]
+    ma = sma50[-n:]
+    fut = n - 1 + HORIZON_BARS
+
+    bg, fg, grid = "#0f1419", "#e6e8eb", "#232a33"
+    green, red, line = "#22c55e", "#ef4444", "#60a5fa"
+    fig, ax = plt.subplots(figsize=(8, 4.2), dpi=120)
+    fig.patch.set_facecolor(bg)
+    ax.set_facecolor(bg)
+
+    ax.plot(xs, ys, color=line, lw=2)
+    ax.plot(xs, ma, color="#94a3b8", lw=1, ls="--", alpha=0.7, label="Media 50 sesiones")
+    entry, target, stop = plan["entry"], plan["target"], plan["stop"]
+    ax.fill_between([n - 1, fut], entry, target, color=green, alpha=0.18, lw=0)
+    ax.fill_between([n - 1, fut], stop, entry, color=red, alpha=0.18, lw=0)
+    for y, col, label in ((target, green, "Objetivo"), (entry, fg, "Entrada"), (stop, red, "Stop")):
+        ax.hlines(y, n - 1, fut, colors=col, lw=1.5)
+        tag = "" if label == "Entrada" else f" {(y / entry - 1) * 100:+.0f}%"
+        ax.text(fut + 0.5, y, f" {label} {_fmt_price(y)}{tag}", color=col, va="center", fontsize=10, fontweight="bold")
+    ax.scatter([n - 1], [entry], color=fg, s=30, zorder=5)
+
+    ax.set_xlim(0, fut + 22)
+    lo = min(min(ys), stop)
+    hi = max(max(ys), target)
+    pad = (hi - lo) * 0.08
+    ax.set_ylim(lo - pad, hi + pad)
+    ax.set_xticks([])
+    ax.tick_params(colors="#8b949e", labelsize=9)
+    ax.grid(axis="y", color=grid, lw=0.8)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.set_title(f"{ticker}  ·  últimos {n} días → próximo mes", color=fg, loc="left", fontsize=12, fontweight="bold")
+    ax.legend(loc="upper left", frameon=False, labelcolor="#8b949e", fontsize=8)
+
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png", facecolor=bg)
+    plt.close(fig)
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------- live scan
@@ -427,11 +496,21 @@ def _simulate_outcome(bars: list[dict], sig) -> str | None:
     return "time"
 
 
+def _clean_name(raw: str) -> str:
+    """PTR asset names look like 'Quanta Services, Inc. - Common Stock (PWR)'."""
+    import re
+
+    name = re.split(r"\s+-\s+|\(", raw)[0]
+    name = re.sub(r",?\s+(Inc|Corp|Corporation|Co|Ltd|plc|LLC|N\.V|S\.A)\.?$", "", name.strip(), flags=re.I)
+    return name.strip()[:40]
+
+
 def scan_and_alert(db) -> dict:
     from . import prices
     from .config import TELEGRAM_BOT_TOKEN
     from .models import SetupSignal, TelegramSubscriber
-    from .telegram_api import send_message
+    from .models import Trade
+    from .telegram_api import send_message, send_photo
 
     tickers, events = universe(db)
     start, end = date.today() - timedelta(days=560), date.today()
@@ -460,17 +539,21 @@ def scan_and_alert(db) -> dict:
             continue
         st = score(f, "long")
         if st.score >= ALERT_MIN_SCORE:
-            candidates.append((st.score, tk, f, st))
+            candidates.append((st.score, tk, f, st, bars))
 
     candidates.sort(key=lambda x: (-x[0], x[1]))
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
     sent = 0
-    for _, tk, f, st in candidates[:MAX_ALERTS_PER_RUN]:
+    for _, tk, f, st, bars in candidates[:MAX_ALERTS_PER_RUN]:
         if f["atr_pct"] >= HIGH_VOL_ATR_PCT:
-            st.reasons.append(f"Volatilidad alta (ATR {f['atr_pct'] * 100:.1f}%): en el backtest, este subgrupo rindió aún mejor")
+            st.reasons.append("Alta volatilidad: el grupo que mejor rindió en el backtest")
         plan = trade_plan(f, "long")
-        body = format_alert(tk, f, st)
-        sent += sum(send_message(c, body) for c in chats)
+        name = db.query(Trade.asset_name).filter(Trade.ticker == tk, Trade.asset_name.isnot(None)).order_by(Trade.id.desc()).first()
+        body = format_alert(tk, f, st, _clean_name(name[0]) if name else None)
+        png = render_chart(tk, bars, f)
+        for c in chats:
+            ok = send_photo(c, png, body) if png else False
+            sent += ok or send_message(c, body)  # fall back to plain text if the photo fails
         db.add(SetupSignal(
             ticker=tk, direction="long", signal_date=f["date"], score=st.score,
             entry=plan["entry"], stop=plan["stop"], target=plan["target"], reasons=" | ".join(st.reasons),

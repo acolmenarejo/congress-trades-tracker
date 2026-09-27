@@ -189,22 +189,56 @@ def should_alert(db: Session, t: InsiderTrade) -> tuple[bool, list[InsiderTrade]
     return len(others) >= 1, others
 
 
+def _fmt_usd(x: float) -> str:
+    return f"${x / 1e6:,.1f}M" if x >= 1e6 else f"${x / 1e3:,.0f}k"
+
+
+def _pretty(name: str | None) -> str:
+    """'LENNAR CORP /NEW/' -> 'Lennar'; 'BERKSHIRE HATHAWAY INC' -> 'Berkshire Hathaway'."""
+    if not name:
+        return ""
+    name = re.sub(r"/[A-Z]+/?", "", name).strip(" ,.")
+    name = re.sub(r",?\s+(INC|CORP|CORPORATION|CO|LTD|PLC|LLC|LP|L\.P|N\.V|S\.A|HOLDINGS?)\.?$", "", name, flags=re.I).strip(" ,.")
+    return name.title() if name.isupper() else name
+
+
+_ROLES = [
+    (r"chief executive|\bceo\b", "CEO"),
+    (r"chief financial|\bcfo\b", "CFO"),
+    (r"chief operating|\bcoo\b", "COO"),
+    (r"^president", "Presidente"),
+    (r"chair", "Presidente del consejo"),
+    (r"10% owner", "accionista >10%"),
+    (r"^director$", "consejero"),
+]
+
+
+def _role_es(role: str | None) -> str:
+    for pat, label in _ROLES:
+        if role and re.search(pat, role, re.I):
+            return label
+    return role or "directivo"
+
+
 def format_alert(t: InsiderTrade, others: list[InsiderTrade]) -> str:
     e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
     lines = [
-        f"🏢 <b>COMPRA DE DIRECTIVO</b>  <b>{e(t.ticker)}</b>" + (f" — {e(t.issuer_name)}" if t.issuer_name else ""),
-        f"👤 {e(t.insider_name)} ({e(t.role or 'insider')})",
-        f"💵 ${t.value_usd:,.0f} — {t.shares:,.0f} acciones a ~${t.avg_price:,.2f}",
+        f"🏢 <b>{e(t.ticker)}</b>" + (f" · {e(_pretty(t.issuer_name))}" if t.issuer_name else ""),
+        f"<b>{e(_pretty(t.insider_name))}</b> ({e(_role_es(t.role))}) compra <b>{_fmt_usd(t.value_usd)}</b> a ${t.avg_price:,.2f}",
     ]
-    if t.shares_after and t.shares_after > t.shares:
-        lines.append(f"📊 Aumenta su posición un {t.shares / (t.shares_after - t.shares) * 100:.0f}% (ahora {t.shares_after:,.0f} acciones)")
+    details = []
     if t.transaction_date:
-        lines.append(f"📅 Operación: {t.transaction_date:%d/%m/%Y}")
+        details.append(f"{t.transaction_date:%d/%m}")
+    if t.shares_after and t.shares_after > t.shares:
+        pct = t.shares / (t.shares_after - t.shares) * 100
+        if pct >= 1:
+            details.append(f"aumenta su posición un {pct:.0f}%")
+    if details:
+        lines.append(" · ".join(details))
     if others:
-        names = sorted({o.insider_name for o in others})
         total = sum(o.value_usd for o in others) + t.value_usd
-        lines.append(f"👥 <b>Compra en grupo:</b> {len(names) + 1} directivos en {CLUSTER_DAYS} días (${total:,.0f} en total): {e(', '.join(names[:4]))}")
-    lines += ["", "<i>Compra en mercado abierto con dinero propio (Form 4, código P).</i>"]
+        lines.append(f"👥 <b>{len({o.insider_cik for o in others}) + 1} directivos</b> comprando en {CLUSTER_DAYS} días ({_fmt_usd(total)})")
+    lines.append("<i>Compra en mercado abierto · Form 4</i>")
     return "\n".join(lines)
 
 
