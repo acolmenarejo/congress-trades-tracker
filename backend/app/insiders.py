@@ -224,15 +224,17 @@ def _fmt_shares(x: float) -> str:
     return f"{x / 1e6:,.2f}M" if x >= 1e6 else f"{x:,.0f}"
 
 
-def format_alert(t: InsiderTrade, others: list[InsiderTrade], analysis=None) -> str:
+def format_alert(t: InsiderTrade, others: list[InsiderTrade], analysis=None, db: Session | None = None) -> str:
     """Labelled so each line reads on its own. `analysis` is the optional
     (bars, features, Setup) from setups.analyze() for the technical block."""
     from . import setups
+    from .company import congress_lines, profile_lines
 
     e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
     company = _pretty(t.issuer_name) or t.ticker
     lines = [
         f"🏢 <b>COMPRA DE DIRECTIVO</b> · <b>{e(t.ticker)}</b> ({e(company)})",
+        *(profile_lines(db, t.ticker) if db is not None else []),
         "",
         f"👤 <b>Quién:</b> {e(_pretty(t.insider_name))} — {e(_role_es(t.role))}",
         f"💵 <b>Compra:</b> {_fmt_usd(t.value_usd)} · {_fmt_shares(t.shares)} acciones a ${t.avg_price:,.2f}",
@@ -260,6 +262,8 @@ def format_alert(t: InsiderTrade, others: list[InsiderTrade], analysis=None) -> 
         if st.score < setups.ALERT_MIN_SCORE:
             lines.append("⚠ Técnico aún sin confirmar: mejor esperar a que acompañe")
         lines += ["", *setups.plan_lines(f)]
+    if db is not None:
+        lines += ["", *congress_lines(db, t.ticker)]
     lines += ["", "<i>Compra en mercado abierto (Form 4) · no es asesoramiento</i>"]
     return "\n".join(lines)
 
@@ -320,7 +324,7 @@ def notify(db: Session) -> int:
     from .config import TELEGRAM_BOT_TOKEN
     from .models import TelegramSubscriber
     from . import setups
-    from .telegram_api import send_message, send_photo
+    from .telegram_api import send_alert
 
     pending = db.query(InsiderTrade).filter_by(notified=False).order_by(InsiderTrade.value_usd.desc()).all()
     if not pending:
@@ -335,15 +339,13 @@ def notify(db: Session) -> int:
             except Exception:
                 logger.exception("insiders: technical analysis failed for %s", t.ticker)
                 analysis = None
-            body = format_alert(t, others, analysis)
+            body = format_alert(t, others, analysis, db)
             png = None
             if analysis:
                 bars, f, _ = analysis
                 marker = [(t.transaction_date or date.today(), t.avg_price, "Compra directivo")] if t.avg_price else None
                 png = setups.render_chart(t.ticker, bars, f, markers=marker)
-            for c in chats:
-                ok_photo = send_photo(c, png, body) if png and len(body) <= 1024 else False
-                sent += ok_photo or send_message(c, body)
+            sent += sum(send_alert(c, body, png) for c in chats)
         t.notified = True
     db.commit()
     logger.info("insiders: %d pending, %d messages sent", len(pending), sent)

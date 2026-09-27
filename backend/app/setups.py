@@ -373,7 +373,9 @@ def plan_lines(f: dict, direction: str = "long") -> list[str]:
     ]
 
 
-def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> str:
+def format_alert(
+    ticker: str, f: dict, st: Setup, name: str | None = None, profile: list[str] | None = None, congress: list[str] | None = None
+) -> str:
     """Short Telegram HTML caption (fits the 1024-char photo caption limit):
     headline, the plan as an aligned block, and the top reasons."""
     import html
@@ -383,11 +385,13 @@ def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> st
     lines = [
         f"{'📈' if long_ else '📉'} <b>{e(ticker)}</b>" + (f" · {e(name)}" if name else ""),
         f"{'Posible subida' if long_ else 'Posible bajada'} · <b>{st.score:.0f}</b>/100 {_score_bar(st.score)}",
+        *(profile or []),
         "",
         *plan_lines(f, st.direction),
         "",
         *[f"✓ {e(r)}" for r in st.reasons[:4]],
         *[f"⚠ {e(r)}" for r in st.risks[:2]],
+        *([""] + congress if congress else []),
         "",
         "<i>Señal automática · no es asesoramiento</i>",
     ]
@@ -550,7 +554,8 @@ def scan_and_alert(db) -> dict:
     from .config import TELEGRAM_BOT_TOKEN
     from .models import SetupSignal, TelegramSubscriber
     from .models import Trade
-    from .telegram_api import send_message, send_photo
+    from .company import congress_lines, profile_lines
+    from .telegram_api import send_alert
 
     tickers, events = universe(db)
     start, end = date.today() - timedelta(days=560), date.today()
@@ -589,11 +594,11 @@ def scan_and_alert(db) -> dict:
             st.reasons.append("Alta volatilidad: el grupo que mejor rindió en el backtest")
         plan = trade_plan(f, "long")
         name = db.query(Trade.asset_name).filter(Trade.ticker == tk, Trade.asset_name.isnot(None)).order_by(Trade.id.desc()).first()
-        body = format_alert(tk, f, st, _clean_name(name[0]) if name else None)
+        body = format_alert(
+            tk, f, st, _clean_name(name[0]) if name else None, profile_lines(db, tk), congress_lines(db, tk)
+        )
         png = render_chart(tk, bars, f)
-        for c in chats:
-            ok = send_photo(c, png, body) if png else False
-            sent += ok or send_message(c, body)  # fall back to plain text if the photo fails
+        sent += sum(send_alert(c, body, png) for c in chats)
         db.add(SetupSignal(
             ticker=tk, direction="long", signal_date=f["date"], score=st.score,
             entry=plan["entry"], stop=plan["stop"], target=plan["target"], reasons=" | ".join(st.reasons),

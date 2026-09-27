@@ -35,6 +35,7 @@ jobs:
         working-directory: backend/insiders
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: python scan_insiders.py --force
 
@@ -56,7 +57,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB insider_trades "telegram_state:key LIKE 'insiders%'"
+            python backend/tools/merge_tables.py /tmp/ours.db $DB company_profiles insider_trades "telegram_state:key LIKE 'insiders%'"
             sleep $((attempt * 5))
           done
           exit 1

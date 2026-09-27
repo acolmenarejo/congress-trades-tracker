@@ -58,3 +58,15 @@ def send_photo(chat_id: int, png: bytes, caption: str, parse_mode: str = "HTML")
     except Exception:
         logger.exception("telegram_api: sendPhoto to %s raised", chat_id)
         return False
+
+
+def send_alert(chat_id: int, body: str, png: bytes | None = None) -> bool:
+    """Photo + caption when it fits Telegram's 1024-char caption limit;
+    otherwise the photo with just the headline, then the full text."""
+    if png:
+        if len(body) <= 1024:
+            if send_photo(chat_id, png, body):
+                return True
+        else:
+            send_photo(chat_id, png, body.split("\n", 1)[0])
+    return send_message(chat_id, body)

@@ -238,3 +238,17 @@ class SetupSignal(Base):
     reasons = Column(String, nullable=True)
     outcome = Column(String, nullable=True)  # target | stop | time — filled in later
     created_at = Column(DateTime, server_default=func.now())
+
+
+class CompanyProfile(Base):
+    """Cached sector/industry/one-line description (FMP profile, translated
+    to Spanish) for alert messages. See app/company.py."""
+
+    __tablename__ = "company_profiles"
+
+    ticker = Column(String, primary_key=True)
+    name = Column(String, nullable=True)
+    sector = Column(String, nullable=True)  # Spanish
+    industry = Column(String, nullable=True)  # Spanish
+    summary = Column(String, nullable=True)  # one sentence, Spanish when translation worked
+    fetched_at = Column(DateTime, server_default=func.now())

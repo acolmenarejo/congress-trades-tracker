@@ -30,6 +30,7 @@ jobs:
         working-directory: backend/setups
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python scan_setups.py
 
       - name: Commit updated database
@@ -50,7 +51,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB setup_signals
+            python backend/tools/merge_tables.py /tmp/ours.db $DB company_profiles setup_signals
             sleep $((attempt * 5))
           done
           exit 1
