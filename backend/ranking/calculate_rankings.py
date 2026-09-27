@@ -219,6 +219,18 @@ def run() -> dict:
                 volume_estimate,
                 f"{metrics['total_return_pct']:.1f}%" if metrics else "n/a",
             )
+
+        # Keep PriceCache fresh for sold tickers too, so the member page can
+        # show "price move since the sale" (crud.get_member_trades reads the
+        # cache only — it runs on read-only Vercel). Tickers already priced
+        # above are cache hits here.
+        oldest_sale: dict[str, date] = {}
+        for t in all_trades:
+            if t.transaction_type == "sale" and _valid_ticker(t.ticker) and t.transaction_date:
+                oldest_sale[t.ticker] = min(oldest_sale.get(t.ticker, t.transaction_date), t.transaction_date)
+        for ticker, since in oldest_sale.items():
+            prices.get_price_series(db, ticker, since, today)
+        logger.info("sold tickers priced: %d", len(oldest_sale))
     finally:
         db.close()
 

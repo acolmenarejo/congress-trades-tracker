@@ -29,6 +29,21 @@ class TradeOut(BaseModel):
     filing_url: Optional[str] = None
 
 
+class MemberTradeOut(TradeOut):
+    """A trade on the member page, plus where it stands today.
+
+    Purchases (from TradeReturn, recomputed daily by the rankings job, last
+    2 years): position_status "open" if no later sale of the same ticker was
+    FIFO-matched to it, else "closed"; return_pct is entry→today (open) or
+    entry→sale (closed). Sales: return_pct is the price move since the sale
+    (from PriceCache), position_status "sold". Amounts are ranges, so a sale
+    may be partial — this is an estimate.
+    """
+
+    position_status: Optional[str] = None  # open | closed | sold
+    return_pct: Optional[float] = None
+
+
 class TradeListOut(BaseModel):
     total: int
     items: list[TradeOut]

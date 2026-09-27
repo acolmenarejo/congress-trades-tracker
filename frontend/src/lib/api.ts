@@ -25,6 +25,15 @@ export interface Trade {
   filing_url: string | null;
 }
 
+/** Trade on the member page, with where the position stands today (see
+ * MemberTradeOut in backend/app/schemas.py). Purchases: "open"/"closed" and
+ * return since the buy (to today or to the matched sale). Sales: "sold" and
+ * the price move since the sale. Estimates — amounts are ranges. */
+export interface MemberTrade extends Trade {
+  position_status?: "open" | "closed" | "sold" | null;
+  return_pct?: number | null;
+}
+
 export interface TradeListResponse {
   total: number;
   items: Trade[];
@@ -185,7 +194,7 @@ export const api = {
     getJSON<MemberRanking[]>(`/members/ranking${qs({ sort_by: sortBy, limit })}`),
   member: (matchKey: string) => getJSON<Member>(`/members/${matchKey}`),
   memberTrades: (matchKey: string, limit = 500) =>
-    getJSON<Trade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
+    getJSON<MemberTrade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
   memberBestTrades: (matchKey: string, limit = 5, worst = false) =>
     getJSON<MemberBestTrade[]>(`/members/${matchKey}/best-trades${qs({ limit, worst })}`),
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),

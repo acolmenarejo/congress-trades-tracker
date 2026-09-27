@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, type Member, type MemberBestTrade, type Trade } from "../lib/api";
+import { api, type Member, type MemberBestTrade, type MemberTrade } from "../lib/api";
 import TransactionBadge from "../components/TransactionBadge";
 import ConflictBadge from "../components/ConflictBadge";
 import HighValueBadge from "../components/HighValueBadge";
@@ -46,10 +46,42 @@ function BestTradeRow({ trade, committees }: { trade: MemberBestTrade; committee
   );
 }
 
+function PositionStatus({ trade }: { trade: MemberTrade }) {
+  const pct = trade.return_pct;
+  if (!trade.position_status || pct === null || pct === undefined) return null;
+  // The % is the underlying's price move — meaningless for an option's own P&L.
+  if (trade.asset_type === "Stock Option") return null;
+  // For a sale, the price falling afterwards means it was a good sale.
+  const good = trade.position_status === "sold" ? pct <= 0 : pct >= 0;
+  const color = good ? "text-buy-dim dark:text-buy" : "text-sell-dim dark:text-sell";
+  const label = {
+    open: "En cartera",
+    closed: "Vendida",
+    sold: "Desde la venta",
+  }[trade.position_status];
+  const title = {
+    open: "Sin venta posterior registrada de este ticker: rentabilidad desde la compra hasta hoy (estimada)",
+    closed: "Cerrada con una venta posterior del mismo ticker: rentabilidad desde la compra hasta esa venta (estimada)",
+    sold: "Cuánto se ha movido el precio desde que vendió. Verde: bajó después (buena venta). Rojo: siguió subiendo",
+  }[trade.position_status];
+  const chip =
+    trade.position_status === "open"
+      ? "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+      : "border-ink/15 bg-ink/5 text-ink/60 dark:border-slate-100/15 dark:bg-slate-100/5 dark:text-slate-400";
+  return (
+    <div className="mt-0.5 flex items-center justify-end gap-1.5 whitespace-nowrap" title={title}>
+      <span className={`whitespace-nowrap rounded border px-1.5 py-px font-sans text-[10px] font-medium uppercase tracking-wide ${chip}`}>
+        {label}
+      </span>
+      <span className={`font-semibold ${color}`}>{formatPct(pct)}</span>
+    </div>
+  );
+}
+
 export default function MemberPage() {
   const { matchKey } = useParams<{ matchKey: string }>();
   const [member, setMember] = useState<Member | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
+  const [trades, setTrades] = useState<MemberTrade[]>([]);
   const [bestTrades, setBestTrades] = useState<MemberBestTrade[]>([]);
   const [notFound, setNotFound] = useState(false);
 
@@ -181,6 +213,7 @@ export default function MemberPage() {
                 >
                   <div>{formatAmountRange(t.amount_range_low, t.amount_range_high)}</div>
                   <div className="font-normal text-ink/60 dark:text-slate-400">{formatDate(t.transaction_date)}</div>
+                  <PositionStatus trade={t} />
                 </div>
               </li>
             );

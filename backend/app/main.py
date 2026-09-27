@@ -15,6 +15,7 @@ from .schemas import (
     MemberBestTradeOut,
     MemberOut,
     MemberRankingOut,
+    MemberTradeOut,
     PolymarketAlertOut,
     TickerSummaryOut,
     TradeListOut,
@@ -150,7 +151,7 @@ def get_member(match_key: str, db: Session = Depends(get_db)):
     return member
 
 
-@app.get("/members/{match_key}/trades", response_model=list[TradeOut])
+@app.get("/members/{match_key}/trades", response_model=list[MemberTradeOut])
 def get_member_trades(match_key: str, limit: int = Query(500, le=2000), db: Session = Depends(get_db)):
     return crud.get_member_trades(db, match_key, limit=limit)
 

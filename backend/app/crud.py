@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .models import Member, MemberRanking, PolymarketAlert, Trade, TradeReturn
+from .models import Member, MemberRanking, PolymarketAlert, PriceCache, Trade, TradeReturn
 from . import earnings, prices
 
 
@@ -95,14 +95,51 @@ def get_member(db: Session, match_key: str) -> Optional[dict]:
     }
 
 
-def get_member_trades(db: Session, match_key: str, limit: int = 500):
-    return (
+def get_member_trades(db: Session, match_key: str, limit: int = 500) -> list[dict]:
+    trades = (
         db.query(Trade)
         .filter(Trade.member_match_key == match_key)
         .order_by(Trade.transaction_date.desc())
         .limit(limit)
         .all()
     )
+    returns = {r.trade_id: r for r in db.query(TradeReturn).filter(TradeReturn.match_key == match_key)}
+
+    # Price move since each sale, from whatever PriceCache has (read-only:
+    # this runs on Vercel). One query per distinct ticker.
+    since_sale: dict[int, float] = {}
+    sales_by_ticker: dict[str, list[Trade]] = {}
+    for t in trades:
+        if t.transaction_type == "sale" and t.ticker and t.transaction_date:
+            sales_by_ticker.setdefault(t.ticker, []).append(t)
+    for ticker, sales in sales_by_ticker.items():
+        oldest = min(s.transaction_date for s in sales)
+        rows = (
+            db.query(PriceCache.date, PriceCache.close)
+            .filter(PriceCache.ticker == ticker, PriceCache.date >= oldest, PriceCache.close.isnot(None))
+            .order_by(PriceCache.date)
+            .all()
+        )
+        if not rows or (date.today() - rows[-1][0]).days > 7:  # stale cache: don't show a misleading number
+            continue
+        last = rows[-1][1]
+        for s in sales:
+            at_sale = next((c for d, c in rows if d >= s.transaction_date), None)
+            if at_sale:
+                since_sale[s.id] = (last / at_sale - 1) * 100
+
+    out = []
+    for t in trades:
+        row = {c.name: getattr(t, c.name) for c in Trade.__table__.columns}
+        if t.id in returns:
+            r = returns[t.id]
+            row["position_status"] = "closed" if r.closed else "open"
+            row["return_pct"] = r.return_pct
+        elif t.id in since_sale:
+            row["position_status"] = "sold"
+            row["return_pct"] = since_sale[t.id]
+        out.append(row)
+    return out
 
 
 def get_member_ranking(db: Session, match_key: str) -> Optional[MemberRanking]:
