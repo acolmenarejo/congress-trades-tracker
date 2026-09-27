@@ -352,14 +352,11 @@ def _score_bar(score: float) -> str:
     return "▰" * filled + "▱" * (10 - filled)
 
 
-def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> str:
-    """Short Telegram HTML caption (fits the 1024-char photo caption limit):
-    headline, the plan as an aligned block, and the top reasons."""
+def plan_lines(f: dict, direction: str = "long") -> list[str]:
+    """The trade plan as an aligned <pre> block + a risk/reward line."""
     import html
 
-    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
-    plan = trade_plan(f, st.direction)
-    long_ = st.direction == "long"
+    plan = trade_plan(f, direction)
     c = plan["entry"]
     pct = lambda x: f"{(x / c - 1) * 100:+.0f}%"  # noqa: E731
 
@@ -370,13 +367,24 @@ def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> st
     ]
     w = max(len(r[1]) for r in rows)
     table = "\n".join(f"{label:<9}{price:>{w}}  {extra}" for label, price, extra in rows)
+    return [
+        f"<pre>{html.escape(table, quote=False)}</pre>",
+        f"⏱ ~1 mes · gana {plan['risk_reward']:.1f}× lo que arriesga",
+    ]
 
+
+def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> str:
+    """Short Telegram HTML caption (fits the 1024-char photo caption limit):
+    headline, the plan as an aligned block, and the top reasons."""
+    import html
+
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    long_ = st.direction == "long"
     lines = [
         f"{'📈' if long_ else '📉'} <b>{e(ticker)}</b>" + (f" · {e(name)}" if name else ""),
         f"{'Posible subida' if long_ else 'Posible bajada'} · <b>{st.score:.0f}</b>/100 {_score_bar(st.score)}",
         "",
-        f"<pre>{e(table)}</pre>",
-        f"⏱ ~1 mes · gana {plan['risk_reward']:.1f}× lo que arriesga",
+        *plan_lines(f, st.direction),
         "",
         *[f"✓ {e(r)}" for r in st.reasons[:4]],
         *[f"⚠ {e(r)}" for r in st.risks[:2]],
@@ -386,9 +394,12 @@ def format_alert(ticker: str, f: dict, st: Setup, name: str | None = None) -> st
     return "\n".join(lines)
 
 
-def render_chart(ticker: str, bars: list[dict], f: dict, direction: str = "long") -> bytes | None:
+def render_chart(
+    ticker: str, bars: list[dict], f: dict, direction: str = "long", markers: list[tuple[date, float, str]] | None = None
+) -> bytes | None:
     """PNG: last ~4 months of closes + SMA50, with the plan drawn as a
-    green (target) / red (stop) zone projected ~1 month ahead.
+    green (target) / red (stop) zone projected ~1 month ahead. `markers`
+    (date, price, label) are drawn as amber dots, e.g. an insider's buy.
     matplotlib is imported lazily and installed only in setups.yml — it's not
     in requirements.txt, which Vercel also installs."""
     try:
@@ -426,10 +437,18 @@ def render_chart(ticker: str, bars: list[dict], f: dict, direction: str = "long"
         tag = "" if label == "Entrada" else f" {(y / entry - 1) * 100:+.0f}%"
         ax.text(fut + 0.5, y, f" {label} {_fmt_price(y)}{tag}", color=col, va="center", fontsize=10, fontweight="bold")
     ax.scatter([n - 1], [entry], color=fg, s=30, zorder=5)
+    amber = "#f59e0b"
+    window_dates = [b["date"] for b in bars[-n:]]
+    for i, (d, price, label) in enumerate(markers or []):
+        x = next((k for k, wd in enumerate(window_dates) if wd >= d), n - 1)
+        ax.hlines(price, x, n - 1, colors=amber, lw=1, ls=":")
+        ax.scatter([x], [price], color=amber, s=70, zorder=6, edgecolors=bg, linewidths=1.5)
+        ax.annotate(label, (x, price), xytext=(-10, -4 - 14 * i), textcoords="offset points", ha="right", va="center", color=amber, fontsize=9, fontweight="bold")
 
     ax.set_xlim(0, fut + 22)
-    lo = min(min(ys), stop)
-    hi = max(max(ys), target)
+    marker_prices = [m[1] for m in markers or []]
+    lo = min(min(ys), stop, *marker_prices)
+    hi = max(max(ys), target, *marker_prices)
     pad = (hi - lo) * 0.08
     ax.set_ylim(lo - pad, hi + pad)
     ax.set_xticks([])
@@ -458,6 +477,27 @@ HIGH_VOL_ATR_PCT = 0.025  # score>=70 AND ATR>2.5% did even better (+2.8-3.2%/tr
 COOLDOWN_DAYS = 30
 MAX_ALERTS_PER_RUN = 3
 EXTRA_TICKERS = ["GLD", "SLV", "USO", "UNG", "CPER", "DBA", "URA", "XLE", "XLF", "XLK", "XLV", "SMH", "QQQ", "IWM"]
+
+
+def analyze(db, ticker: str) -> tuple[list[dict], dict, Setup] | None:
+    """Fetch prices and score one ticker right now (used to add technical
+    context to other alerts, e.g. insider buys). None if not enough history."""
+    from . import prices
+    from .models import Trade
+
+    start, end = date.today() - timedelta(days=560), date.today()
+    spy = {b["date"]: b["close"] for b in prices._fetch_from_yahoo("SPY", start, end)}
+    bars = prices._fetch_from_yahoo(ticker, start, end)
+    events = [
+        (d, m, t)
+        for d, m, t in db.query(Trade.disclosure_date, Trade.member_match_key, Trade.transaction_type).filter(
+            Trade.ticker == ticker, Trade.disclosure_date.isnot(None), Trade.transaction_type.in_(["purchase", "sale"])
+        )
+    ]
+    feats = compute_features(bars, spy, events)
+    if not feats or feats[-1] is None:
+        return None
+    return bars, feats[-1], score(feats[-1], "long")
 
 
 def universe(db, min_trades: int = 5) -> tuple[list[str], dict[str, list]]:

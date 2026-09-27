@@ -28,7 +28,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        # matplotlib only here (alert charts), not in requirements.txt.
+        run: pip install -r requirements.txt matplotlib
 
       - name: Scan Form 4 purchases and alert
         working-directory: backend/insiders
