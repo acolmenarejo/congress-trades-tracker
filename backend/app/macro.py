@@ -4,7 +4,7 @@ for stocks. Rule-based on purpose: the thresholds are the ones market
 commentary commonly uses, not fitted to anything, and the page says so.
 
 Data (no API keys):
-  FRED  fredgraph.csv  DGS10, DGS2, T10Y2Y, EFFR, SOFR, IORB, WALCL, WTREGEN,
+  FRED  API with FRED_API_KEY (fredgraph.csv without one)  DGS10, DGS2, T10Y2Y, EFFR, SOFR, IORB, WALCL, WTREGEN,
                        RRPONTSYD, WRESBAL, BAMLH0A0HYM2
   Yahoo chart API      ^MOVE (bond volatility), ^VIX
 Fetched daily by macro.yml (backend/macro/fetch_macro.py) into MacroPoint;
@@ -13,7 +13,7 @@ the API only reads, so it works on Vercel's read-only DB.
 import csv
 import io
 import logging
-import time
+import os
 from datetime import date, datetime, timedelta
 
 import requests
@@ -24,6 +24,7 @@ from .models import MacroPoint
 logger = logging.getLogger(__name__)
 
 FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+FRED_API = "https://api.stlouisfed.org/fred/series/observations"  # free key: FRED_API_KEY
 HISTORY_DAYS = 3 * 365
 
 # series id → (source, divisor to the unit we show). Liquidity series are
@@ -48,19 +49,29 @@ SERIES = {
 
 # ---------------------------------------------------------------- fetching
 
-def _fred(series_id: str, start: date) -> list[tuple[date, float]]:
-    # fredgraph.csv is slow and sometimes stops answering for minutes (all 11
-    # series timed out on 2026-10-10), so retry with growing waits.
-    for attempt in range(3):
+def _fred_api(series_id: str, start: date, key: str) -> list[tuple[date, float]]:
+    resp = requests.get(FRED_API, params={"series_id": series_id, "observation_start": start.isoformat(),
+                                          "api_key": key, "file_type": "json"}, timeout=30)
+    resp.raise_for_status()
+    out = []
+    for o in resp.json().get("observations", []):
         try:
-            resp = requests.get(FRED_CSV, params={"id": series_id, "cosd": start.isoformat()}, timeout=60,
-                                headers={"User-Agent": "congress-trades-tracker/1.0"})  # a browser UA gets tarpitted
-            resp.raise_for_status()
-            break
-        except requests.RequestException:
-            if attempt == 2:
-                raise
-            time.sleep(20 * (attempt + 1))
+            out.append((date.fromisoformat(o["date"]), float(o["value"])))
+        except (KeyError, ValueError):
+            continue  # "." = no value that day
+    return out
+
+
+def _fred(series_id: str, start: date) -> list[tuple[date, float]]:
+    # fredgraph.csv blocks some GitHub runners outright (HTTP/2 reset, or a
+    # read that never ends: every series failed on 2026-10-10) while the
+    # official API host answers. Use the API when FRED_API_KEY is set.
+    key = os.environ.get("FRED_API_KEY")
+    if key:
+        return _fred_api(series_id, start, key)
+    resp = requests.get(FRED_CSV, params={"id": series_id, "cosd": start.isoformat()}, timeout=60,
+                        headers={"User-Agent": "congress-trades-tracker/1.0"})  # a browser UA gets tarpitted
+    resp.raise_for_status()
     out = []
     for row in csv.reader(io.StringIO(resp.text)):
         if len(row) < 2 or row[1] in ("", ".") or not row[0][:1].isdigit():
