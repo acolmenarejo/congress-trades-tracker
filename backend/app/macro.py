@@ -13,6 +13,7 @@ the API only reads, so it works on Vercel's read-only DB.
 import csv
 import io
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 import requests
@@ -48,9 +49,18 @@ SERIES = {
 # ---------------------------------------------------------------- fetching
 
 def _fred(series_id: str, start: date) -> list[tuple[date, float]]:
-    resp = requests.get(FRED_CSV, params={"id": series_id, "cosd": start.isoformat()}, timeout=30,
-                        headers={"User-Agent": "congress-trades-tracker/1.0"})  # a browser UA gets tarpitted
-    resp.raise_for_status()
+    # fredgraph.csv is slow and sometimes stops answering for minutes (all 11
+    # series timed out on 2026-10-10), so retry with growing waits.
+    for attempt in range(3):
+        try:
+            resp = requests.get(FRED_CSV, params={"id": series_id, "cosd": start.isoformat()}, timeout=60,
+                                headers={"User-Agent": "congress-trades-tracker/1.0"})  # a browser UA gets tarpitted
+            resp.raise_for_status()
+            break
+        except requests.RequestException:
+            if attempt == 2:
+                raise
+            time.sleep(20 * (attempt + 1))
     out = []
     for row in csv.reader(io.StringIO(resp.text)):
         if len(row) < 2 or row[1] in ("", ".") or not row[0][:1].isdigit():
@@ -72,11 +82,16 @@ def refresh(db: Session) -> dict:
     """Fetch every series (last HISTORY_DAYS) and upsert. Returns points per series."""
     start = date.today() - timedelta(days=HISTORY_DAYS)
     stats = {}
+    fred_failures = 0
     for sid, (source, div) in SERIES.items():
+        if source == "fred" and fred_failures >= 2:
+            stats[sid] = 0  # FRED is down: don't spend minutes timing out on every series
+            continue
         try:
             pts = _fred(sid, start) if source == "fred" else _yahoo(sid, start)
         except Exception:
             logger.exception("macro: %s failed", sid)
+            fred_failures += source == "fred"
             stats[sid] = 0
             continue
         for d, v in pts:
@@ -344,6 +359,8 @@ def snapshot(db: Session) -> dict:
         regime, summary = "mixto", "Algunas señales a vigilar: selectivo, sin apalancamiento."
     else:
         regime, summary = "favorable", "Sin tensiones relevantes en tipos, crédito ni liquidez."
+    if len(inds) < 6:
+        summary += f" Ojo: solo hay {len(inds)} de 9 indicadores (falló la descarga de FRED), lectura incompleta."
     return {"regime": regime, "summary": summary, "stress": stress, "watch": watch, "indicators": inds,
             "polymarket": pm}
 

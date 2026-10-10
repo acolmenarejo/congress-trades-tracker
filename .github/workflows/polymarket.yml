@@ -7,7 +7,12 @@ on:
     # GitHub's schedule can lag; the scanner reads trades since the last
     # one it saw, so a late run catches up rather than missing any.
     - cron: "25 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: "Backfill: rescan this many past hours (stored for the web, no Telegram)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -34,7 +39,8 @@ jobs:
         working-directory: backend/polymarket
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python scan_whale_bets.py
+          HOURS: ${{ inputs.hours }}
+        run: python scan_whale_bets.py ${HOURS:+--hours "$HOURS"}
 
       - name: Commit updated database
         # Same retry/merge loop as insiders.yml: hourly now, so it races the

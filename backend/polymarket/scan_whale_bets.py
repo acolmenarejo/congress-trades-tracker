@@ -2,7 +2,8 @@
 docstring for why, and for what this actually detects/doesn't detect).
 
 Usage:
-    python scan_whale_bets.py
+    python scan_whale_bets.py            # since the last trade seen
+    python scan_whale_bets.py --hours 72 # backfill; stored for the web, no Telegram
 """
 import logging
 import os
@@ -18,6 +19,7 @@ except ImportError:
     pass
 
 from app.database import SessionLocal, init_db  # noqa: E402
+from app.models import PolymarketAlert  # noqa: E402
 from app import polymarket_macro  # noqa: E402
 from app.polymarket import notify, scan  # noqa: E402
 
@@ -27,8 +29,14 @@ if __name__ == "__main__":
     init_db()
     db = SessionLocal()
     try:
-        scan(db)
-        notify(db)
+        hours = int(sys.argv[sys.argv.index("--hours") + 1]) if "--hours" in sys.argv else 0
+        scan(db, backfill_hours=hours)
+        if hours:
+            # Old bets are not news: record them for the web without alerting.
+            db.query(PolymarketAlert).filter(PolymarketAlert.notified.is_(False)).update({"notified": True})
+            db.commit()
+        else:
+            notify(db)
         try:
             polymarket_macro.fetch(db)  # odds for the Macro page cross-check
         except Exception:
