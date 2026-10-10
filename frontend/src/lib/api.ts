@@ -157,12 +157,20 @@ export interface MacroIndicator {
   history: { date: string; value: number }[];
 }
 
+export interface MacroPolymarket {
+  odds: { key: string; title: string; url: string | null; text: string; change: number | null; change_label: string | null }[];
+  checks: { status: "ok" | "watch"; text: string; short?: string }[];
+  bets: { id: number; question: string; outcome: string | null; price: number | null; size_usd: number; score: number; slug: string | null }[];
+  updated: string | null;
+}
+
 export interface MacroSnapshot {
   regime: "favorable" | "mixto" | "tenso";
   summary: string;
   stress: number;
   watch: number;
   indicators: MacroIndicator[];
+  polymarket: MacroPolymarket;
 }
 
 export type PolymarketCategory = "mercados" | "geopolitica" | "otros";

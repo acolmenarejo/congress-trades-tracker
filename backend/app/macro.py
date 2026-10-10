@@ -391,7 +391,14 @@ def polymarket_view(db: Session, s: dict[str, _S]) -> dict:
                 f"Polymarket solo da un {_pct(p_cut)} a una bajada en la próxima reunión. El mercado de bonos "
                 "podría estar adelantándose: riesgo de decepción en la reunión.")})
         elif gap >= 25 and p_hike >= 0.5 or gap <= -50 and (p_cut or 0) >= 0.5:
-            checks.append({"status": "ok", "text": "Bonos y Polymarket coinciden en la dirección de los tipos."})
+            detail = []
+            if hike_year.ok and gap >= 25:
+                detail.append(f"{_pct(hike_year.last)} a otra subida este año")
+            if hike.ok and cut.ok:
+                detail.append(f"{_pct(hike.last if gap >= 25 else cut.last)} ya en la próxima reunión")
+            checks.append({"status": "ok", "text": (
+                f"Bonos y Polymarket coinciden: el 2 años está {gap:+.0f} pb sobre la Fed y Polymarket da "
+                + " y ".join(detail) + ".")})
         else:
             checks.append({"status": "ok", "text": (
                 f"Sin contradicción clara entre el bono a 2 años ({gap:+.0f} pb sobre la Fed) y Polymarket.")})

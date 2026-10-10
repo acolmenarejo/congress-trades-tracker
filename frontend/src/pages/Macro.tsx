@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
-import { api, type MacroIndicator, type MacroSnapshot } from "../lib/api";
+import { api, type MacroIndicator, type MacroPolymarket, type MacroSnapshot } from "../lib/api";
+import { formatUSD } from "../lib/format";
 import { SkeletonRows } from "../components/Skeleton";
 import { chartColors } from "../lib/chartTheme";
 import { useDarkMode } from "../hooks/useDarkMode";
@@ -66,6 +67,75 @@ function Card({ i, dark }: { i: MacroIndicator; dark: boolean }) {
   );
 }
 
+function PolymarketCheck({ pm }: { pm: MacroPolymarket }) {
+  if (pm.odds.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+      <h3 className="font-serif text-lg font-semibold">Lo que apuesta Polymarket</h3>
+      <p className="mb-3 text-xs text-ink/50 dark:text-slate-400">
+        Probabilidades implícitas en dinero real, comparadas con lo que dicen los bonos y el crédito.
+      </p>
+      <div className="space-y-2">
+        {pm.checks.map((c, n) => (
+          <p
+            key={n}
+            className={`rounded px-3 py-2 text-sm ${
+              c.status === "watch" ? "bg-amber-500/10 text-amber-800 dark:text-amber-300" : "bg-buy/10"
+            }`}
+          >
+            {c.status === "watch" ? "⚠️ " : "✓ "}
+            {c.text}
+          </p>
+        ))}
+      </div>
+      <ul className="mt-3 grid gap-2 md:grid-cols-2">
+        {pm.odds.map((o) => (
+          <li key={o.key} className="rounded border border-ink/10 p-3 text-sm dark:border-slate-100/10">
+            <p className="font-medium">
+              {o.url ? (
+                <a href={o.url} target="_blank" rel="noreferrer" className="underline">
+                  {o.title}
+                </a>
+              ) : (
+                o.title
+              )}
+            </p>
+            <p className="font-mono text-xs">{o.text}</p>
+            {o.change !== null && (
+              <p className="font-mono text-[11px] text-ink/50 dark:text-slate-400">
+                {o.change > 0 ? "+" : ""}
+                {o.change} {o.change_label}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+      {pm.bets.length > 0 && (
+        <>
+          <h4 className="mt-4 font-mono text-xs uppercase tracking-wide text-ink/50 dark:text-slate-400">
+            Apuestas sospechosas en mercados financieros (7 días)
+          </h4>
+          <ul className="mt-1 space-y-1 text-sm">
+            {pm.bets.map((b) => (
+              <li key={b.id}>
+                <span className="font-mono text-xs font-bold">{Math.round(b.score)}/100</span> {formatUSD(b.size_usd)} a «
+                {b.outcome}» ({Math.round((b.price ?? 0) * 100)}¢) en{" "}
+                {b.slug ? (
+                  <a href={`https://polymarket.com/event/${b.slug}`} target="_blank" rel="noreferrer" className="underline">
+                    {b.question}
+                  </a>
+                ) : (
+                  b.question
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Macro() {
   const [dark] = useDarkMode();
   const [snap, setSnap] = useState<MacroSnapshot | null>(null);
@@ -110,6 +180,7 @@ export default function Macro() {
               {snap.stress} en tensión · {snap.watch} a vigilar · {snap.indicators.length - snap.stress - snap.watch} normales
             </p>
           </div>
+          <PolymarketCheck pm={snap.polymarket} />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {snap.indicators.map((i) => (
               <Card key={i.key} i={i} dark={dark} />

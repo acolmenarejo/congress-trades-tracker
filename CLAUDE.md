@@ -193,7 +193,14 @@ y revisión general de mejoras de frontend.
 - `app/macro.py` + `macro.yml` (diario): series de FRED vía `fredgraph.csv`
   (sin clave) y ^MOVE/^VIX de Yahoo en `macro_points`. `/macro` y la página
   Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
-  mercado (no ajustadas). Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
+  mercado (no ajustadas).
+- `app/polymarket_macro.py` (cada hora, dentro de `polymarket.yml`): saca de
+  Polymarket la probabilidad de la próxima decisión de la Fed, de otra subida
+  este año, de recesión y el reparto del próximo IPC (busca los eventos por
+  patrón de título, no por slug: abren uno nuevo por reunión/mes). Se guardan
+  como series `PM_*` en `macro_points`; `macro.polymarket_view` las cruza con
+  el bono a 2 años y el high yield y avisa si no cuadran (página Macro y
+  resumen diario). Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
   dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
   peticiones con User-Agent de navegador: no usar uno.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
