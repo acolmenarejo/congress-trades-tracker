@@ -163,6 +163,16 @@ y revisión general de mejoras de frontend.
   `setups.yml` la cierra en cuanto toca objetivo/stop (o a los 20 días), avisa
   por Telegram del resultado, y `/setups/signals` + `SetupSignalsCard` lo
   muestran en el Dashboard.
+- La nota se muestra separada: "técnico X/100" (bloques sin Congreso, reescalado
+  a 100) + "+N por congresistas" aparte (el usuario no quiere que la ausencia de
+  compras del Congreso parezca penalizar). El umbral ≥ 70 sigue aplicándose a la
+  nota total, que es lo backtesteado.
+- Rupturas (`breakout_at`): base estrecha cerca de máximos + cierre sobre el
+  máximo de 10 días con volumen ≥ 1,5x. Backtest (`setups/breakout_report.md`):
+  **sin ventaja** fuera de muestra. Por eso solo se avisan para tickers de la
+  watchlist y con compras de directivos en 90 días (`breakout_universe`),
+  etiquetadas como no probadas. Se guardan en `SetupSignal` con
+  `direction="breakout"` para medir su acierto en vivo.
 - Polymarket no se envía por Telegram (solo web) y no tiene relación con
   empresas: no usarlo para filtrar directivos.
 

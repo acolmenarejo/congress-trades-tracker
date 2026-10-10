@@ -212,6 +212,7 @@ def get_setup_signals(db: Session = Depends(get_db)):
         res = setups.evaluate_signal(bars, sig)
         out.append({
             "ticker": sig.ticker,
+            "kind": sig.direction,  # long (score >= 70) | breakout
             "signal_date": sig.signal_date,
             "score": sig.score,
             "entry": sig.entry,

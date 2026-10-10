@@ -139,6 +139,7 @@ export interface PolymarketAlert {
 
 export interface SetupSignal {
   ticker: string;
+  kind: "long" | "breakout";
   signal_date: string;
   score: number;
   entry: number;

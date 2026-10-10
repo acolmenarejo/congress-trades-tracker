@@ -357,13 +357,14 @@ def format_alert(buys: list[InsiderTrade], analysis=None, db: Session | None = N
         vs_buy = (f["close"] / avg_price - 1) * 100 if avg_price else None
         lines += [
             "",
-            f"<b>Análisis técnico</b> · {st.score:.0f}/100 {setups._score_bar(st.score)}",
+            f"<b>Análisis técnico</b> · {st.technical:.0f}/100 {setups._score_bar(st.technical)}"
+            + (f" · +{st.congress:.0f} por congresistas" if st.congress else ""),
             f"Precio actual {setups._fmt_price(f['close'])}"
             + (f" ({vs_buy:+.0f}% vs. {'su compra' if len(insiders) == 1 else 'su precio medio'})" if vs_buy is not None else ""),
             *[f"✓ {e(r)}" for r in st.reasons[:3]],
             *[f"⚠ {e(r)}" for r in st.risks[:2]],
         ]
-        if st.score < setups.ALERT_MIN_SCORE:
+        if st.technical < setups.ALERT_MIN_SCORE:
             lines.append("⚠ Técnico aún sin confirmar: mejor esperar a que acompañe")
         lines += ["", *setups.plan_lines(f)]
     if db is not None:

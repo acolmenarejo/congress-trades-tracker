@@ -44,7 +44,7 @@ export default function SetupSignalsCard() {
         )}
       </div>
       <p className="mb-3 text-xs text-ink/60 dark:text-slate-400">
-        Cada alerta de Telegram con su entrada, objetivo y stop. Se cierra al tocar uno de los dos o al mes.
+        Cada alerta de Telegram (señal por nota ≥ 70 o ruptura) con su entrada, objetivo y stop. Se cierra al tocar uno de los dos o al mes.
       </p>
       {signals === null && <p className="text-sm text-ink/60 dark:text-slate-400">Cargando…</p>}
       {signals !== null && (
@@ -68,7 +68,9 @@ export default function SetupSignalsCard() {
                       <Link to={`/tickers/${s.ticker}`} className="hover:underline">
                         {s.ticker}
                       </Link>
-                      <span className="ml-1 font-mono text-xs text-ink/50 dark:text-slate-500">{s.score.toFixed(0)}</span>
+                      <span className="ml-1 font-mono text-xs text-ink/50 dark:text-slate-500">
+                        {s.kind === "breakout" ? "ruptura" : s.score.toFixed(0)}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-3 font-mono text-xs">{formatDate(s.signal_date)}</td>
                     <td className="py-1.5 pr-3 font-mono text-xs">
