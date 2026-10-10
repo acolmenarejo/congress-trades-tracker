@@ -101,6 +101,9 @@ class PriceCache(Base):
     ticker/date on every run."""
 
     __tablename__ = "price_cache"
+    # The (ticker, date) key is the table itself — no separate index the size
+    # of the table (see tools/compact_db.py).
+    __table_args__ = {"sqlite_with_rowid": False}
 
     ticker = Column(String, primary_key=True)
     date = Column(Date, primary_key=True)
