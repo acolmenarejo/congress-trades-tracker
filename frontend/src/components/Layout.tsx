@@ -10,6 +10,7 @@ const navItems = [
   { to: "/ranking", label: "Ranking" },
   { to: "/compliance", label: "Cumplimiento" },
   { to: "/watchlist", label: "Watchlist" },
+  { to: "/directivos", label: "Directivos" },
   { to: "/polymarket", label: "Polymarket" },
   { to: "/mi-seguimiento", label: "Mi seguimiento" },
 ];

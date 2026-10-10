@@ -200,7 +200,7 @@ def get_ticker_summary(db: Session, ticker: str, limit: int = 200):
     }
 
 
-def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 100):
+def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 100, min_trades: int = 0):
     valid_sorts = {
         "total_return_pct",
         "annualized_return_pct",
@@ -217,6 +217,7 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
     rankings = (
         db.query(MemberRanking, Member)
         .join(Member, Member.match_key == MemberRanking.match_key)
+        .filter(MemberRanking.trade_count >= min_trades)
         .order_by(col.desc().nullslast())
         .limit(limit)
         .all()

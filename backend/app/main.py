@@ -138,9 +138,12 @@ def feed_rss(
 def members_ranking(
     sort_by: str = Query("total_return_pct"),
     limit: int = Query(100, le=500),
+    min_trades: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crud.get_rankings(db, sort_by=sort_by, limit=limit)
+    # min_trades: a +114% "return" over 2 trades is luck, not skill — the
+    # Ranking page asks for >= 10 by default.
+    return crud.get_rankings(db, sort_by=sort_by, limit=limit, min_trades=min_trades)
 
 
 @app.get("/members/{match_key}", response_model=MemberOut)
@@ -193,6 +196,57 @@ def get_polymarket_whale_bets(limit: int = Query(50, le=200), db: Session = Depe
     scheduled scan (backend/polymarket/scan_whale_bets.py via GitHub
     Actions), not computed per-request."""
     return crud.get_polymarket_alerts(db, limit=limit)
+
+
+@app.get("/insiders")
+def get_insiders(days: int = Query(60, le=365), only_relevant: bool = Query(True), db: Session = Depends(get_db)):
+    """Open-market insider purchases (SEC Form 4, app/insiders.py), grouped by
+    ticker. only_relevant applies the same filter as the Telegram alerts."""
+    import math
+    from datetime import timedelta
+
+    from . import insiders
+    from .models import InsiderTrade
+
+    since = date.today() - timedelta(days=days)
+    rows = (
+        db.query(InsiderTrade)
+        .filter(InsiderTrade.transaction_date >= since)
+        .order_by(InsiderTrade.transaction_date.desc())
+        .all()
+    )
+    groups: dict[str, dict] = {}
+    for t in rows:
+        company = insiders.is_company_insider(t)
+        alert, _ = insiders.should_alert(db, t) if company else (False, [])
+        if only_relevant and not alert:
+            continue
+        inc = insiders.position_increase(t)
+        g = groups.setdefault(t.ticker, {
+            "ticker": t.ticker, "company": insiders._pretty(t.issuer_name) or t.ticker,
+            "total_usd": 0.0, "last_date": None, "insiders": set(), "buys": [],
+        })
+        g["total_usd"] += t.value_usd
+        g["insiders"].add(t.insider_cik or t.insider_name)
+        g["last_date"] = max(filter(None, [g["last_date"], t.transaction_date]), default=None)
+        g["buys"].append({
+            "insider": insiders._pretty(t.insider_name),
+            "role": insiders._role_es(t.role),
+            "date": t.transaction_date,
+            "filed_at": t.filed_at,
+            "value_usd": t.value_usd,
+            "shares": t.shares,
+            "avg_price": t.avg_price,
+            "position_increase_pct": None if inc is None else (-1 if inc == math.inf else inc * 100),
+            "company_insider": company,
+            "alerted": alert,
+        })
+    out = []
+    for g in groups.values():
+        g["n_insiders"] = len(g.pop("insiders"))
+        out.append(g)
+    out.sort(key=lambda g: (g["last_date"] or date.min), reverse=True)
+    return out
 
 
 @app.get("/setups/signals")

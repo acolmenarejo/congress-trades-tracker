@@ -154,6 +154,28 @@ export interface SetupSignal {
   return_pct: number | null;
 }
 
+export interface InsiderBuy {
+  insider: string;
+  role: string;
+  date: string | null;
+  filed_at: string | null;
+  value_usd: number;
+  shares: number;
+  avg_price: number | null;
+  position_increase_pct: number | null; // -1 = brand-new position
+  company_insider: boolean;
+  alerted: boolean;
+}
+
+export interface InsiderGroup {
+  ticker: string;
+  company: string;
+  total_usd: number;
+  last_date: string | null;
+  n_insiders: number;
+  buys: InsiderBuy[];
+}
+
 export interface TradeFilters {
   member?: string;
   ticker?: string;
@@ -207,8 +229,8 @@ export const api = {
   kpis: () => getJSON<Kpis>("/kpis"),
   trades: (filters: TradeFilters = {}) =>
     getJSON<TradeListResponse>(`/trades${qs(filters)}`),
-  ranking: (sortBy = "total_return_pct", limit = 100) =>
-    getJSON<MemberRanking[]>(`/members/ranking${qs({ sort_by: sortBy, limit })}`),
+  ranking: (sortBy = "total_return_pct", limit = 100, minTrades = 0) =>
+    getJSON<MemberRanking[]>(`/members/ranking${qs({ sort_by: sortBy, limit, min_trades: minTrades })}`),
   member: (matchKey: string) => getJSON<Member>(`/members/${matchKey}`),
   memberTrades: (matchKey: string, limit = 500) =>
     getJSON<MemberTrade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
@@ -219,6 +241,8 @@ export const api = {
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
   polymarketWhaleBets: (limit = 50) =>
     getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
+  insiders: (days = 60, onlyRelevant = true) =>
+    getJSON<InsiderGroup[]>(`/insiders${qs({ days, only_relevant: onlyRelevant })}`),
   setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),
   tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
 };
