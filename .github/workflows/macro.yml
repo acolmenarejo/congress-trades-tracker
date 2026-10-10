@@ -47,7 +47,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB macro_points
+            python backend/tools/merge_tables.py /tmp/ours.db $DB "macro_points:series NOT LIKE 'PM_%'"
             sleep $((attempt * 5))
           done
           exit 1

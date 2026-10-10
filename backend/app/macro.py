@@ -13,7 +13,7 @@ the API only reads, so it works on Vercel's read-only DB.
 import csv
 import io
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import requests
 from sqlalchemy.orm import Session
@@ -334,6 +334,8 @@ def snapshot(db: Session) -> dict:
         inds.append(_ind("sofr", "SOFR − IORB (tensión en repo)", spread, "pb", st, rd, ac,
                          spread.change(30), "pb en 30 días", 0))
 
+    pm = polymarket_view(db, s)
+
     stress = sum(i["status"] == "stress" for i in inds)
     watch = sum(i["status"] == "watch" for i in inds)
     if stress >= 2 or (stress and watch >= 3):
@@ -342,7 +344,102 @@ def snapshot(db: Session) -> dict:
         regime, summary = "mixto", "Algunas señales a vigilar: selectivo, sin apalancamiento."
     else:
         regime, summary = "favorable", "Sin tensiones relevantes en tipos, crédito ni liquidez."
-    return {"regime": regime, "summary": summary, "stress": stress, "watch": watch, "indicators": inds}
+    return {"regime": regime, "summary": summary, "stress": stress, "watch": watch, "indicators": inds,
+            "polymarket": pm}
+
+
+def _pct(x: float) -> str:
+    return f"{x * 100:.0f}%"
+
+
+def polymarket_view(db: Session, s: dict[str, _S]) -> dict:
+    """What Polymarket bettors expect (app/polymarket_macro.py) next to what
+    bonds and credit say, with a note wherever the two disagree."""
+    from .models import PolymarketAlert
+    from .polymarket_macro import load_meta
+
+    meta = load_meta(db)
+    link = lambda k: f"https://polymarket.com/event/{meta[k]['slug']}" if k in meta else None  # noqa: E731
+    odds, checks = [], []
+
+    cut, hold, hike = s["PM_FED_CUT"], s["PM_FED_HOLD"], s["PM_FED_HIKE"]
+    if hike.ok and "fed_next" in meta:
+        odds.append({
+            "key": "fed_next", "title": meta["fed_next"]["title"], "url": link("fed_next"),
+            "text": f"Bajada {_pct(cut.last)} · sin cambios {_pct(hold.last)} · subida {_pct(hike.last)}",
+            "change": None if hike.ago(7) is None else round((hike.last - hike.ago(7)) * 100),
+            "change_label": "pp de prob. de subida en 7 días",
+        })
+    hike_year = s["PM_FED_HIKE_YEAR"]
+    if hike_year.ok and "fed_hike_year" in meta:
+        odds.append({"key": "fed_hike_year", "title": meta["fed_hike_year"]["title"], "url": link("fed_hike_year"),
+                     "text": f"Sí {_pct(hike_year.last)}", "change": None, "change_label": None})
+    y2, effr = s["DGS2"], s["EFFR"]
+    if y2.ok and effr.ok and (hike.ok or hike_year.ok):
+        gap = (y2.last - effr.last) * 100
+        p_hike = max(hike_year.last if hike_year.ok else 0, hike.last if hike.ok else 0)
+        p_cut = cut.last if cut.ok else None
+        if gap >= 25 and p_hike < 0.3:
+            checks.append({"status": "watch", "short": f"bonos descuentan subidas, Polymarket solo {_pct(p_hike)}", "text": (
+                f"No cuadran: el bono a 2 años está {gap:.0f} pb sobre el tipo de la Fed (descuenta subidas), pero "
+                f"Polymarket solo da un {_pct(p_hike)} a una subida. Los bonos miran 2 años y Polymarket solo las "
+                "próximas reuniones: o se esperan subidas más adelante, o los bonos piden prima por inflación. "
+                "Si la Fed endurece el tono, el ajuste sería en contra de quien apuesta por tipos estables.")})
+        elif gap <= -50 and p_cut is not None and p_cut < 0.3:
+            checks.append({"status": "watch", "short": f"bonos descuentan bajadas, Polymarket solo {_pct(p_cut)}", "text": (
+                f"No cuadran: el bono a 2 años descuenta bajadas ({gap:.0f} pb bajo el tipo de la Fed) pero "
+                f"Polymarket solo da un {_pct(p_cut)} a una bajada en la próxima reunión. El mercado de bonos "
+                "podría estar adelantándose: riesgo de decepción en la reunión.")})
+        elif gap >= 25 and p_hike >= 0.5 or gap <= -50 and (p_cut or 0) >= 0.5:
+            checks.append({"status": "ok", "text": "Bonos y Polymarket coinciden en la dirección de los tipos."})
+        else:
+            checks.append({"status": "ok", "text": (
+                f"Sin contradicción clara entre el bono a 2 años ({gap:+.0f} pb sobre la Fed) y Polymarket.")})
+
+    rec = s["PM_RECESSION"]
+    if rec.ok and "recession" in meta:
+        odds.append({"key": "recession", "title": meta["recession"]["title"], "url": link("recession"),
+                     "text": f"Sí {_pct(rec.last)}",
+                     "change": None if rec.ago(30) is None else round((rec.last - rec.ago(30)) * 100),
+                     "change_label": "pp en 30 días"})
+        hy, curve = s["BAMLH0A0HYM2"], s["T10Y2Y"]
+        if hy.ok:
+            if rec.last >= 0.3 and hy.last < 4:
+                checks.append({"status": "watch", "short": f"Polymarket ve {_pct(rec.last)} de recesión, el crédito no", "text": (
+                    f"Polymarket da un {_pct(rec.last)} a recesión, pero el crédito high yield sigue tranquilo "
+                    f"({hy.last:.2f} pp). Si los apostantes aciertan, el crédito está caro: cuidado con empresas "
+                    "endeudadas.")})
+            elif rec.last < 0.15 and (hy.last >= 5 or (curve.ok and curve.last < 0)):
+                checks.append({"status": "watch", "short": f"Polymarket solo ve {_pct(rec.last)} de recesión", "text": (
+                    f"Polymarket solo da un {_pct(rec.last)} a recesión, pero "
+                    + ("el crédito ya se tensa" if hy.last >= 5 else "la curva está invertida")
+                    + ". Los apostantes podrían estar infravalorando el riesgo.")})
+            else:
+                checks.append({"status": "ok", "text": (
+                    f"Recesión: Polymarket ({_pct(rec.last)}) y el crédito ({hy.last:.2f} pp) cuentan la misma historia.")})
+
+    if "cpi" in meta and meta["cpi"].get("buckets"):
+        b = meta["cpi"]["buckets"]
+        odds.append({"key": "cpi", "title": meta["cpi"]["title"], "url": link("cpi"),
+                     "text": " · ".join(f"{x['label']} {_pct(x['p'])}" for x in b[:3]),
+                     "change": None, "change_label": None})
+
+    since = datetime.utcnow() - timedelta(days=7)
+    bets = (
+        db.query(PolymarketAlert)
+        .filter(PolymarketAlert.tag == "mercados", PolymarketAlert.score.isnot(None),
+                PolymarketAlert.detected_at >= since)
+        .order_by(PolymarketAlert.score.desc())
+        .limit(5)
+        .all()
+    )
+    return {
+        "odds": odds,
+        "checks": checks,
+        "bets": [{"id": b.id, "question": b.market_question, "outcome": b.outcome, "price": b.price,
+                  "size_usd": b.size_usd, "score": b.score, "slug": b.event_slug} for b in bets],
+        "updated": meta.get("updated"),
+    }
 
 
 def digest_lines(db: Session) -> list[str]:
@@ -364,4 +461,7 @@ def digest_lines(db: Session) -> list[str]:
     for i in snap["indicators"]:
         if i["status"] == "stress":
             lines.append(f"  • ⚠️ {i['reading']}")
+    for c in snap["polymarket"]["checks"]:
+        if c["status"] != "ok":
+            lines.append(f"  • 🎲 No cuadran: {c['short']}")
     return lines

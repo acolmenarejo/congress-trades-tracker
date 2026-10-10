@@ -52,7 +52,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB polymarket_alerts "telegram_state:key LIKE 'polymarket%'"
+            python backend/tools/merge_tables.py /tmp/ours.db $DB polymarket_alerts "macro_points:series LIKE 'PM_%'" "telegram_state:key LIKE 'polymarket%'"
             sleep $((attempt * 5))
           done
           exit 1
