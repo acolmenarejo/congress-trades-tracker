@@ -44,6 +44,8 @@ SERIES = {
     "BAMLH0A0HYM2": ("fred", 1),
     "^MOVE": ("yahoo", 1),
     "^VIX": ("yahoo", 1),
+    "UNRATE": ("fred", 1),  # last unemployment print, to compare with what Kalshi expects
+    "^GSPC": ("yahoo", 1),  # S&P 500 level, for Kalshi's year-end distribution
 }
 
 
@@ -166,7 +168,14 @@ def _load(db: Session) -> dict[str, _S]:
     since = date.today() - timedelta(days=HISTORY_DAYS + 30)
     for p in db.query(MacroPoint).filter(MacroPoint.date >= since).order_by(MacroPoint.date):
         out.setdefault(p.series, []).append((p.date, p.value))
-    return {k: _S(v) for k, v in out.items()}
+    return _Series({k: _S(v) for k, v in out.items()})
+
+
+class _Series(dict):
+    """Missing series (e.g. a Kalshi market that closed) read as empty."""
+
+    def __missing__(self, key):
+        return _S([])
 
 
 def _net_liquidity(s: dict[str, _S]) -> _S:
@@ -361,6 +370,7 @@ def snapshot(db: Session) -> dict:
                          spread.change(30), "pb en 30 días", 0))
 
     pm = polymarket_view(db, s)
+    ks = kalshi_view(db, s)
 
     stress = sum(i["status"] == "stress" for i in inds)
     watch = sum(i["status"] == "watch" for i in inds)
@@ -373,6 +383,7 @@ def snapshot(db: Session) -> dict:
     if len(inds) < 6:
         summary += f" Ojo: solo hay {len(inds)} de 9 indicadores (falló la descarga de FRED), lectura incompleta."
     return {"regime": regime, "summary": summary, "stress": stress, "watch": watch, "indicators": inds,
+            "kalshi": ks,
             "polymarket": pm}
 
 
@@ -533,6 +544,9 @@ def digest_lines(db: Session) -> list[str]:
     for i in snap["indicators"]:
         if i["status"] == "stress":
             lines.append(f"  • ⚠️ {i['reading']}")
+    for r in snap["kalshi"]:
+        if r["status"] == "stress":
+            lines.append(f"  • 🔮 {r['reading']}")
     for c in snap["polymarket"]["checks"]:
         if c["status"] != "ok":
             lines.append(f"  • 🎲 No cuadran: {c['short']}")
@@ -561,7 +575,8 @@ def notify_changes(db: Session) -> int:
     snap = snapshot(db)
     if len(snap["indicators"]) < 6:
         return 0  # a failed download is not a change in the economy
-    now = {i["key"]: i["status"] for i in snap["indicators"]}
+    items = snap["indicators"] + [{**r, "name": r["title"]} for r in snap["kalshi"] if r["status"]]
+    now = {i["key"]: i["status"] for i in items}
     now["_regime"] = snap["regime"]
     st = db.get(TelegramState, STATUS_KEY)
     try:
@@ -574,7 +589,7 @@ def notify_changes(db: Session) -> int:
         return 0
 
     e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
-    changed = [i for i in snap["indicators"] if before.get(i["key"]) not in (None, i["status"])]
+    changed = [i for i in items if before.get(i["key"]) not in (None, i["status"])]
     regime_changed = before.get("_regime") not in (None, snap["regime"])
     if not changed and not regime_changed:
         return 0
@@ -590,3 +605,119 @@ def notify_changes(db: Session) -> int:
     text = "\n".join(lines)
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
     return sum(send_message(c, text) for c in chats)
+
+
+# ---------------------------------------------------------------- Kalshi expectations
+
+def _tier(x: float | None, watch: float, stress: float) -> str | None:
+    if x is None:
+        return None
+    return "stress" if x >= stress else "watch" if x >= watch else "ok"
+
+
+def kalshi_view(db: Session, s: dict[str, _S]) -> list[dict]:
+    """Forecasts only Kalshi trades with real volume (app/kalshi_expect.py),
+    each with a plain reading and, for the ones that warn of a turn in the
+    economy or the market, a status that feeds notify_changes(). Thresholds
+    are round, common-sense levels, not fitted."""
+    from .kalshi_expect import load_meta
+
+    meta = load_meta(db)
+    rows: list[dict] = []
+
+    labels = {"payrolls": "Empleo (próximo informe)", "u3": "Paro (próximo dato)", "gdp": "PIB del trimestre",
+              "cpi": "Inflación del mes (IPC)", "pce": "Inflación PCE del mes", "fed1": "Tipo de la Fed (2 próximas reuniones)",
+              "recession_next": "Recesión el año que viene", "spx": "S&P 500 a fin de año",
+              "wti_high": "Petróleo antes de fin de año"}
+
+    def add(key, series, value, status, reading, action, delta=None, delta_label=None):
+        m = meta.get(key.upper()) or {}
+        rows.append({
+            "key": f"ks_{key}", "title": labels[key], "market": m.get("title"), "value": value, "status": status,
+            "reading": reading, "action": action, "change": delta, "change_label": delta_label,
+            "url": f"https://kalshi.com/markets/{(m.get('series') or '').lower()}" if m.get("series") else None,
+        })
+
+    def wk(sid, scale=1.0):
+        x = s[sid]
+        return None if x.ago(7) is None else round((x.last - x.ago(7)) * scale, 1)
+
+    pay, neg = s["KS_PAYROLLS_MED"], s["KS_PAYROLLS_NEG"]
+    if pay.ok:
+        p_neg = neg.last if neg.ok else None
+        st = _tier(p_neg, 0.25, 0.40)
+        add("payrolls", "KXPAYROLLS", f"{pay.last / 1000:+.0f}k empleos" + (f" · {_pct(p_neg)} de que sea negativo" if p_neg is not None else ""), st,
+            f"El mercado espera unos {pay.last / 1000:.0f} mil empleos nuevos en el próximo informe."
+            + (f" Da un {_pct(p_neg)} a que se destruya empleo." if p_neg is not None else ""),
+            "Un dato negativo suele anticipar recesión: favorece bonos largos (TLT) y defensivas; castiga cíclicas y pequeñas (IWM)."
+            if st != "ok" else "Empleo creciendo: sin señal de recesión por este lado.",
+            wk("KS_PAYROLLS_NEG", 100), "pp de prob. de dato negativo en 7 días")
+    u3, unrate = s["KS_U3_MED"], s["UNRATE"]
+    if u3.ok:
+        rise = u3.last - unrate.last if unrate.ok else None
+        st = _tier(rise, 0.3, 0.5)
+        add("u3", "KXU3", f"paro {u3.last:.1f}%" + (f" (último {unrate.last:.1f}%)" if unrate.ok else ""), st,
+            f"El mercado espera un paro del {u3.last:.1f}%"
+            + (f", {rise:+.1f} puntos sobre el último dato." if rise is not None else "."),
+            "Una subida de 0,5 puntos del paro (regla de Sahm) ha acompañado a todas las recesiones desde 1970: reduce riesgo."
+            if st == "stress" else "Paro subiendo: vigila consumo discrecional (XLY) y crédito." if st == "watch"
+            else "Paro estable.", wk("KS_U3_MED"), "pp en 7 días")
+    gdp = s["KS_GDP_MED"]
+    if gdp.ok:
+        st = "stress" if gdp.last < 0 else "watch" if gdp.last < 1 else "ok"
+        add("gdp", "KXGDP", f"PIB {gdp.last:.1f}% anualizado", st,
+            f"El mercado espera un crecimiento del PIB del {gdp.last:.1f}% anualizado.",
+            "Crecimiento negativo: cíclicas y beneficios a la baja." if st == "stress"
+            else "Crecimiento flojo: prefiere calidad y defensivas." if st == "watch" else "Crecimiento sano.",
+            wk("KS_GDP_MED"), "pp en 7 días")
+    cpi, core, pce = s["KS_CPI_MED"], s["KS_CORECPI_MED"], s["KS_PCE_MED"]
+    if cpi.ok:
+        st = _tier(cpi.last, 0.4, 0.6)
+        add("cpi", "KXCPI", f"IPC {cpi.last:+.2f}% mensual" + (f" · subyacente {core.last:.1f}% anual" if core.ok else ""), st,
+            f"El mercado espera un IPC de {cpi.last:+.2f}% en el mes (≈{cpi.last * 12:.1f}% anualizado)"
+            + (f" y una subyacente del {core.last:.1f}% interanual." if core.ok else "."),
+            "Inflación mensual alta: presiona a la Fed a subir; malo para bonos largos y tecnológicas caras."
+            if st != "ok" else "Inflación mensual contenida.", wk("KS_CPI_MED"), "pp en 7 días")
+    if pce.ok:
+        add("pce", "KXPCEHEAD", f"PCE {pce.last:+.2f}% mensual", None,
+            f"El indicador de inflación que mira la Fed: el mercado espera {pce.last:+.2f}% en el mes.",
+            "Si sale por encima, refuerza las subidas que ya descuentan bonos y apuestas.", wk("KS_PCE_MED"), "pp en 7 días")
+    f1, f2, effr = s["KS_FED1_MED"], s["KS_FED2_MED"], s["EFFR"]
+    if f1.ok:
+        txt = f"{f1.last:.2f}%" + (f" → {f2.last:.2f}%" if f2.ok else "")
+        hikes = (f2.last if f2.ok else f1.last) - effr.last if effr.ok else None
+        add("fed1", "KXFED", f"tipo Fed {txt}", None,
+            "Tipo de la Fed esperado tras las dos próximas reuniones"
+            + (f": {hikes * 100:+.0f} pb sobre el actual." if hikes is not None else "."),
+            "Subidas descontadas: el dólar y los bancos suelen aguantar mejor; crecimiento y bonos largos, peor."
+            if hikes is not None and hikes >= 0.2 else "Sin cambios relevantes descontados.", None, None)
+    rec = s["KS_RECESSION_NEXT"]
+    if rec.ok:
+        st = _tier(rec.last, 0.25, 0.40)
+        add("recession_next", "KXRECSSNBER", f"recesión el año que viene {_pct(rec.last)}", st,
+            f"Kalshi da un {_pct(rec.last)} a que empiece una recesión (definición NBER) el año que viene.",
+            "Probabilidad alta: reduce cíclicas, aumenta bonos de calidad y liquidez." if st == "stress"
+            else "Riesgo de recesión creciente: rota hacia calidad." if st == "watch" else "Riesgo de recesión bajo.",
+            wk("KS_RECESSION_NEXT", 100), "pp en 7 días")
+    spx, drop, gspc = s["KS_SPX_MED"], s["KS_SPX_DROP10"], s["^GSPC"]
+    if spx.ok:
+        st = _tier(drop.last if drop.ok else None, 0.15, 0.25)
+        up = (spx.last / gspc.last - 1) * 100 if gspc.ok else None
+        add("spx", "KXINXY", f"S&P fin de año {spx.last:,.0f}" + (f" ({up:+.0f}%)" if up is not None else ""), st,
+            f"El mercado sitúa el S&P 500 en torno a {spx.last:,.0f} a final de año"
+            + (f", un {up:+.1f}% desde hoy" if up is not None else "")
+            + (f", y da un {_pct(drop.last)} a que acabe al menos un 10% por debajo." if drop.ok else "."),
+            "Probabilidad de caída fuerte elevada: coberturas (puts, menos exposición) y calidad." if st == "stress"
+            else "Riesgo de corrección por encima de lo normal." if st == "watch" else "Sin miedo especial a una caída fuerte.",
+            wk("KS_SPX_DROP10", 100), "pp de prob. de caída ≥ 10% en 7 días")
+    hi, lo = s["KS_WTI_HIGH"], s["KS_WTI_LOW"]
+    if hi.ok:
+        lvl = (meta.get("WTI_HIGH") or {}).get("level", 120)
+        st = _tier(hi.last, 0.20, 0.35)
+        lo_lvl = (meta.get("WTI_LOW") or {}).get("level", 65)
+        add("wti_high", "KXWTIMAX", f"petróleo > ${lvl} {_pct(hi.last)}" + (f" · < ${lo_lvl} {_pct(lo.last)}" if lo.ok else ""), st,
+            f"Kalshi da un {_pct(hi.last)} a que el WTI supere ${lvl} antes de fin de año"
+            + (f" y un {_pct(lo.last)} a que baje de ${lo_lvl}." if lo.ok else "."),
+            "Riesgo de shock de petróleo: favorece energía (XLE) y perjudica aerolíneas, transporte y consumo; empuja la inflación."
+            if st != "ok" else "Sin shock de petróleo descontado.", wk("KS_WTI_HIGH", 100), "pp en 7 días")
+    return rows

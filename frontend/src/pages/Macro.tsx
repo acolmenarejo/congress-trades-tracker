@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, YAxis } from "recharts";
-import { api, type MacroIndicator, type MacroPolymarket, type MacroSnapshot } from "../lib/api";
+import { api, type KalshiExpectation, type MacroIndicator, type MacroPolymarket, type MacroSnapshot } from "../lib/api";
 import { formatUSD } from "../lib/format";
 import { SkeletonRows } from "../components/Skeleton";
 import { chartColors } from "../lib/chartTheme";
@@ -143,6 +143,53 @@ function PolymarketCheck({ pm }: { pm: MacroPolymarket }) {
   );
 }
 
+function KalshiBlock({ rows }: { rows: KalshiExpectation[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
+      <h3 className="font-serif text-lg font-semibold">Lo que descuenta Kalshi</h3>
+      <p className="mb-3 text-xs text-ink/50 dark:text-slate-400">
+        Previsiones con dinero real que en Polymarket no tienen liquidez: empleo, paro, PIB, inflación del mes,
+        tipos de la Fed, recesión el año que viene, S&amp;P 500 a fin de año y picos del petróleo. Las que tienen
+        estado avisan por Telegram cuando cambian.
+      </p>
+      <ul className="grid gap-2 md:grid-cols-2">
+        {rows.map((r) => (
+          <li key={r.key} className="rounded border border-ink/10 p-3 text-sm dark:border-slate-100/10">
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-medium">
+                {r.url ? (
+                  <a href={r.url} target="_blank" rel="noreferrer" className="underline" title={r.market ?? undefined}>
+                    {r.title}
+                  </a>
+                ) : (
+                  r.title
+                )}
+              </p>
+              {r.status && (
+                <span className={`shrink-0 rounded px-2 py-0.5 font-mono text-[11px] font-bold uppercase ${STATUS[r.status].cls}`}>
+                  {STATUS[r.status].label}
+                </span>
+              )}
+            </div>
+            <p className="font-mono text-sm font-bold">{r.value}</p>
+            {r.change !== null && r.change !== 0 && (
+              <p className="font-mono text-[11px] text-ink/50 dark:text-slate-400">
+                {r.change > 0 ? "+" : ""}
+                {r.change} {r.change_label}
+              </p>
+            )}
+            <p className="mt-1">{r.reading}</p>
+            <p className="mt-1 text-ink/70 dark:text-slate-300">
+              <span className="font-semibold">Qué implica:</span> {r.action}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function Macro() {
   const [dark] = useDarkMode();
   const [snap, setSnap] = useState<MacroSnapshot | null>(null);
@@ -187,6 +234,7 @@ export default function Macro() {
               {snap.stress} en tensión · {snap.watch} a vigilar · {snap.indicators.length - snap.stress - snap.watch} normales
             </p>
           </div>
+          <KalshiBlock rows={snap.kalshi ?? []} />
           <PolymarketCheck pm={snap.polymarket} />
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {snap.indicators.map((i) => (
