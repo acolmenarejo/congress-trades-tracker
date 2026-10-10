@@ -108,8 +108,14 @@ def build(db: Session, now: datetime | None = None) -> str:
     return "\n".join(lines)
 
 
-# Sections without a time window (current state), appended by other modules.
-EXTRA_SECTIONS: list = []
+def polymarket_lines(db: Session) -> list[str]:
+    from . import polymarket
+
+    return polymarket.digest_lines(db)
+
+
+# Sections without a time window (current state).
+EXTRA_SECTIONS: list = [polymarket_lines]
 
 
 def maybe_send(db: Session, now: datetime | None = None) -> bool:

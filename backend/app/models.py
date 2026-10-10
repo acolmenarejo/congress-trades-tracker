@@ -185,6 +185,14 @@ class PolymarketAlert(Base):
     market_slug = Column(String, nullable=True)
     trade_timestamp = Column(DateTime, nullable=True)
     detected_at = Column(DateTime, server_default=func.now())
+    # Suspicious-bet scanner (Oct 2026). NULL on older "whale" rows, which
+    # are hidden from the API and never alerted (notified IS NULL).
+    score = Column(Float, nullable=True)
+    reasons = Column(String, nullable=True)  # " | "-joined, Spanish
+    hours_to_end = Column(Float, nullable=True)
+    wallet_markets = Column(Integer, nullable=True)
+    implication = Column(String, nullable=True)
+    notified = Column(Boolean, nullable=True)
 
 
 class TelegramState(Base):

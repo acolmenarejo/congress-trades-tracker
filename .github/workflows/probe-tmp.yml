@@ -8,4 +8,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install requests && python backend/tools/probe_pm.py
+      - run: pip install -r backend/requirements.txt && python backend/tools/probe_pm.py

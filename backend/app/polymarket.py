@@ -1,158 +1,339 @@
-"""Polymarket "whale bet on an uncertain outcome" scanner.
+"""Polymarket "suspicious bet" scanner.
 
-Not affiliated with Congress trades — this is a separate personal signal: a
-single, unusually large trade on a political/policy prediction market whose
-outcome isn't yet public knowledge (price not already near 0 or 1). A big
-one-sided bet on real uncertainty is either high conviction or someone
-knows something. It is deliberately NOT attributed to any identity —
-Polymarket wallets are pseudonymous on-chain addresses with no public link
-to a real person, so this only ever surfaces "wallet 0x1234... bet $80k",
-never a name. Read-only public APIs, no key needed:
-https://docs.polymarket.com/api-reference/introduction
+What we look for (the user's own example: someone puts $10M on "Maduro
+arrested today"): a big BUY on an outcome the market thinks is unlikely,
+in a market that resolves soon, ideally from a wallet with little history.
+Either it's information the market doesn't have yet, or a very odd bet —
+both worth a look, and worth a Telegram alert when the market is about
+finance/economy (Fed, tariffs, oil, companies...) or, at a higher bar,
+geopolitics that moves markets.
+
+Suspicion score, 0-100 (see `score_trade`):
+  size     0-30  $10k → 0 ... $1M+ → 30 (log scale)
+  odds     0-25  price paid 50% → 0 ... ≤ 5% → 25 (long shot)
+  horizon  0-20  resolves in ≤ 1 day → 20, ≤ 3 d → 15, ≤ 7 d → 10, ≤ 14 d → 5
+  wallet   0-20  ≤ 3 markets ever traded → 20, ≤ 10 → 12, ≤ 30 → 5
+  share    0-5   trade ≥ 10% of the market's liquidity
+Stored if score ≥ STORE_MIN_SCORE; alerted per ALERT rules below. Sports,
+esports and short-term crypto "up or down" markets are skipped entirely:
+big one-sided bets there are normal gambling, not information.
+
+Wallets are pseudonymous: we never claim who's behind one. Public APIs, no
+key: data-api (trades, wallet stats) and gamma-api (market metadata).
 """
+import html
 import logging
+import math
+import re
 from datetime import datetime, timezone
 
 import requests
 from sqlalchemy.orm import Session
 
-from .models import PolymarketAlert
+from .models import PolymarketAlert, TelegramState
 
 logger = logging.getLogger("polymarket")
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 DATA_BASE = "https://data-api.polymarket.com"
 
-# Curated, conservative set of tags relevant to policy/political outcomes —
-# deliberately excludes sports/entertainment/crypto-price markets that
-# dominate Polymarket's overall volume and would drown out the signal.
-WATCHED_TAGS = [
-    "politics", "elections", "congress", "house-races", "geopolitics",
-    "scotus", "government-shutdown", "tariffs", "federal-government",
-]
+MIN_TRADE_USD = 10_000
+PAGE_SIZE = 500
+MAX_PAGES = 6
+STORE_MIN_SCORE = 45
+ALERT_MIN_SCORE_MARKETS = 55
+ALERT_MIN_SCORE_GEO = 75
+MAX_ALERTS_PER_RUN = 5
+STATE_KEY = "polymarket_last_ts"
 
-MIN_LIQUIDITY_USD = 20_000       # ignore illiquid/joke markets
-MIN_TRADE_USD = 5_000            # floor for "large" in absolute terms
-MIN_PCT_OF_LIQUIDITY = 0.05      # a single trade >= 5% of the market's liquidity
-UNCERTAINTY_BAND = (0.08, 0.92)  # price must reflect real uncertainty, not consensus
+SKIP = re.compile(
+    r"\b(nfl|nba|mlb|nhl|wnba|mls|ufc|epl|uefa|fifa|premier league|la liga|serie a|bundesliga|champions league|"
+    r"tennis|atp|wta|golf|pga|f1|formula 1|nascar|boxing|cricket|esports?|dota|cs2|counter-strike|valorant|"
+    r"league of legends|lol:|overwatch|super bowl|world series|stanley cup|grand slam|match|game \d|"
+    r"vs\.?|o/u|spread|touchdown|goals?|oscars?|grammys?|emmys?|eurovision|box office|album|song|"
+    r"up or down|bitcoin above|ethereum above|btc|eth price|solana above|xrp above)\b",
+    re.I,
+)
+MARKETS = re.compile(
+    r"\b(fed|fomc|interest rates?|rate (cut|hike)|bps|powell|warsh|inflation|cpi|pce|gdp|recession|"
+    r"unemployment|jobs report|payrolls|tariffs?|trade deal|treasury|yields?|bond|debt ceiling|shutdown|default|"
+    r"s&p|nasdaq|dow|stock|shares|earnings|ipo|merger|acqui\w+|bankrupt\w*|ceo|sec\b|etf|oil|opec|brent|wti|"
+    r"gas prices|gold|silver|copper|dollar|euro|yen|yuan|nvidia|apple|tesla|microsoft|amazon|google|alphabet|"
+    r"meta|openai|anthropic|boeing|intel|tsmc|sanctions?|ecb|bank of japan|boj|central bank)\b",
+    re.I,
+)
+GEO = re.compile(
+    r"\b(arrest\w*|captured?|ousted?|resign\w*|coup|invade\w*|invasion|strikes?|attack\w*|war|ceasefire|"
+    r"missile|nuclear|regime|maduro|venezuela|iran|israel|gaza|hezbollah|houthis?|taiwan|china|russia|"
+    r"ukraine|putin|zelensky|xi jinping|kim jong|north korea|cuba|hormuz)\b",
+    re.I,
+)
+
+# What a resolution could move, for the alert's "qué podría implicar" line.
+# Deliberately coarse: a pointer to what to look at, not a trade.
+IMPLICATIONS = [
+    (re.compile(r"\b(fed|fomc|rate cut|interest rates?|powell|warsh|bps)\b", re.I),
+     "Tipos de la Fed: mueve bonos (TLT), dólar, bancos (XLF) y tecnológicas de crecimiento (QQQ)."),
+    (re.compile(r"\b(cpi|inflation|pce)\b", re.I),
+     "Dato de inflación: bonos (TLT), expectativas de tipos y oro (GLD)."),
+    (re.compile(r"\b(tariffs?|trade deal|sanctions?)\b", re.I),
+     "Aranceles/sanciones: importadores y retail, industriales, emergentes y el dólar."),
+    (re.compile(r"\b(oil|opec|brent|wti|maduro|venezuela|iran|hormuz|houthis?|saudi)\b", re.I),
+     "Oferta de petróleo: crudo (USO), petroleras (XLE), aerolíneas y refinerías."),
+    (re.compile(r"\b(taiwan|china|xi jinping|tsmc)\b", re.I),
+     "China/Taiwán: semiconductores (SMH, TSM, NVDA) y cadena de suministro."),
+    (re.compile(r"\b(russia|ukraine|putin|zelensky|nuclear|war|invasion|missile)\b", re.I),
+     "Riesgo geopolítico: defensa (ITA, LMT, RTX), oro (GLD), gas europeo, bolsa europea."),
+    (re.compile(r"\b(shutdown|debt ceiling|default|treasury)\b", re.I),
+     "Fiscal EE. UU.: letras del Tesoro, liquidez (TGA) y volatilidad (VIX)."),
+    (re.compile(r"\b(recession|unemployment|payrolls|jobs report|gdp)\b", re.I),
+     "Ciclo económico: bonos, cíclicas vs. defensivas y pequeñas compañías (IWM)."),
+    (re.compile(r"\b(earnings|ipo|merger|acqui\w+|bankrupt\w*|ceo|nvidia|apple|tesla|microsoft|amazon|google|alphabet|meta|boeing|intel)\b", re.I),
+     "Evento de empresa: la acción afectada y su sector directamente."),
+]
 
 
 def _get(url: str, params: dict):
-    resp = requests.get(url, params=params, timeout=20)
+    resp = requests.get(url, params=params, timeout=25)
     resp.raise_for_status()
     return resp.json()
 
 
-def _extract_price(m: dict) -> float | None:
-    """The Gamma API is observed to sometimes omit outcomePrices from a
-    market object (payload shape seems to vary, possibly by response size /
-    CDN caching) — fall back to other price fields it more reliably
-    includes rather than silently dropping the market."""
-    prices = m.get("outcomePrices")
-    try:
-        if prices:
-            return float(prices[0])
-    except (TypeError, ValueError, IndexError):
-        pass
-    last_trade = m.get("lastTradePrice")
-    if last_trade is not None:
-        try:
-            return float(last_trade)
-        except (TypeError, ValueError):
-            pass
-    bid, ask = m.get("bestBid"), m.get("bestAsk")
-    if bid is not None and ask is not None:
-        try:
-            return (float(bid) + float(ask)) / 2
-        except (TypeError, ValueError):
-            pass
+def classify(text: str) -> str | None:
+    """'mercados' | 'geopolitica' | 'otros', or None to skip the market."""
+    if SKIP.search(text):
+        return None
+    if MARKETS.search(text):
+        return "mercados"
+    if GEO.search(text):
+        return "geopolitica"
+    return "otros"
+
+
+def implication(text: str) -> str | None:
+    for pat, line in IMPLICATIONS:
+        if pat.search(text):
+            return line
     return None
 
 
-def _fetch_watched_markets() -> list[dict]:
-    """One dict per sub-market across every watched tag, deduped by
-    conditionId, restricted to active + liquid + genuinely uncertain."""
-    markets: dict[str, dict] = {}
-    for tag in WATCHED_TAGS:
+def _clip(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def score_trade(usd: float, price: float, hours_to_end: float | None, wallet_markets: int | None,
+                liquidity: float | None) -> tuple[float, list[str]]:
+    reasons: list[str] = []
+    pts = 30 * _clip(math.log10(max(usd, 1) / MIN_TRADE_USD) / 2)
+    pts_odds = 25 * _clip((0.5 - price) / 0.45)
+    pts += pts_odds
+    if price <= 0.2:
+        reasons.append(f"apuesta a algo poco probable ({price * 100:.0f}% según el mercado)")
+    if hours_to_end is not None and hours_to_end >= 0:
+        for limit, p in ((24, 20), (72, 15), (168, 10), (336, 5)):
+            if hours_to_end <= limit:
+                pts += p
+                reasons.append("se resuelve en " + (f"{hours_to_end:.0f} h" if hours_to_end < 48 else f"{hours_to_end / 24:.0f} días"))
+                break
+    if wallet_markets is not None:
+        for limit, p in ((3, 20), (10, 12), (30, 5)):
+            if wallet_markets <= limit:
+                pts += p
+                reasons.append(f"cartera casi nueva ({wallet_markets} mercados en total)")
+                break
+    if liquidity and usd / liquidity >= 0.10:
+        pts += 5
+        reasons.append(f"{usd / liquidity * 100:.0f}% de la liquidez del mercado")
+    return round(pts, 1), reasons
+
+
+def _recent_big_trades(since_ts: int) -> list[dict]:
+    out: list[dict] = []
+    for page in range(MAX_PAGES):
         try:
-            events = _get(f"{GAMMA_BASE}/events", {"tag_slug": tag, "limit": 50, "closed": "false"})
+            rows = _get(f"{DATA_BASE}/trades", {
+                "filterType": "CASH", "filterAmount": MIN_TRADE_USD, "takerOnly": "true",
+                "side": "BUY", "limit": PAGE_SIZE, "offset": page * PAGE_SIZE,
+            })
         except Exception:
-            logger.exception("polymarket: failed fetching tag %s", tag)
-            continue
-        for event in events:
-            for m in event.get("markets", []) or []:
-                condition_id = m.get("conditionId")
-                if not condition_id or condition_id in markets:
-                    continue
-                try:
-                    liquidity = float(m.get("liquidity") or 0)
-                except (TypeError, ValueError):
-                    liquidity = 0
-                if liquidity < MIN_LIQUIDITY_USD:
-                    continue
-                price_yes = _extract_price(m)
-                if price_yes is None or not (UNCERTAINTY_BAND[0] <= price_yes <= UNCERTAINTY_BAND[1]):
-                    continue
-                markets[condition_id] = {
-                    "condition_id": condition_id,
-                    "question": m.get("question"),
-                    "event_title": event.get("title"),
-                    "event_slug": event.get("slug"),
-                    "market_slug": m.get("slug"),
-                    "liquidity": liquidity,
-                    "tag": tag,
-                }
-    return list(markets.values())
+            logger.exception("polymarket: trades page %d failed", page)
+            break
+        if not rows:
+            break
+        out += [r for r in rows if (r.get("timestamp") or 0) > since_ts]
+        if min(r.get("timestamp") or 0 for r in rows) <= since_ts:
+            break
+    return out
+
+
+def _markets(condition_ids: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for i in range(0, len(condition_ids), 40):
+        try:
+            for m in _get(f"{GAMMA_BASE}/markets", {"condition_ids": condition_ids[i : i + 40], "limit": 100}):
+                out[m.get("conditionId")] = m
+        except Exception:
+            logger.exception("polymarket: market metadata failed")
+    return out
+
+
+def _wallet_markets(wallet: str, cache: dict) -> int | None:
+    if wallet not in cache:
+        try:
+            cache[wallet] = int(_get(f"{DATA_BASE}/traded", {"user": wallet}).get("traded"))
+        except Exception:
+            cache[wallet] = None
+    return cache[wallet]
+
+
+def _hours_to_end(m: dict, now: datetime) -> float | None:
+    end = m.get("endDate")
+    if not end:
+        return None
+    try:
+        return (datetime.fromisoformat(end.replace("Z", "+00:00")) - now).total_seconds() / 3600
+    except ValueError:
+        return None
 
 
 def scan(db: Session) -> dict:
-    stats = {"markets_scanned": 0, "alerts_found": 0}
-    markets = _fetch_watched_markets()
-    stats["markets_scanned"] = len(markets)
+    now = datetime.now(timezone.utc)
+    st = db.get(TelegramState, STATE_KEY)
+    since = int(st.value) if st and st.value else int(now.timestamp()) - 6 * 3600
+    trades = _recent_big_trades(since)
+    stats = {"big_trades": len(trades), "stored": 0}
+    if not trades:
+        return stats
 
-    for market in markets:
-        try:
-            trades = _get(f"{DATA_BASE}/trades", {"market": market["condition_id"], "limit": 50})
-        except Exception:
-            logger.exception("polymarket: failed fetching trades for %s", market["condition_id"])
+    texts = {t["conditionId"]: f"{t.get('title', '')} {t.get('slug', '')} {t.get('eventSlug', '')}" for t in trades}
+    keep = {cid for cid, txt in texts.items() if classify(txt)}
+    markets = _markets(sorted(keep))
+    wallets: dict = {}
+    for t in trades:
+        cid = t.get("conditionId")
+        if cid not in keep:
             continue
+        tx = t.get("transactionHash")
+        if not tx or db.query(PolymarketAlert).filter_by(tx_hash=tx).one_or_none():
+            continue
+        try:
+            price = float(t["price"])
+            usd = float(t["size"]) * price
+        except (KeyError, TypeError, ValueError):
+            continue
+        if usd < MIN_TRADE_USD or not 0 < price < 1:
+            continue
+        m = markets.get(cid, {})
+        liquidity = float(m.get("liquidity") or 0) or None
+        hours = _hours_to_end(m, now)
+        if hours is not None and hours < 0:
+            continue  # already past its end date: just settling, not a bet on news
+        # Cheap pre-check before the per-wallet API call: without a fresh
+        # wallet (max 20 pts) this trade can't reach the store threshold.
+        base, _ = score_trade(usd, price, hours, None, liquidity)
+        if base + 20 < STORE_MIN_SCORE:
+            continue
+        nmk = _wallet_markets(t.get("proxyWallet") or "", wallets)
+        score, reasons = score_trade(usd, price, hours, nmk, liquidity)
+        if score < STORE_MIN_SCORE:
+            continue
+        text = f"{t.get('title', '')} {m.get('question', '')} {m.get('description', '')[:300]}"
+        ts = t.get("timestamp")
+        db.add(PolymarketAlert(
+            tx_hash=tx,
+            event_title=t.get("title") or "",
+            market_question=m.get("question") or t.get("title") or "",
+            outcome=t.get("outcome"),
+            side="BUY",
+            price=price,
+            size_usd=usd,
+            liquidity_usd=liquidity,
+            pct_of_liquidity=usd / liquidity if liquidity else None,
+            wallet=t.get("proxyWallet"),
+            tag=classify(text) or "otros",
+            event_slug=t.get("eventSlug"),
+            market_slug=t.get("slug"),
+            trade_timestamp=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
+            score=score,
+            reasons=" | ".join(reasons),
+            hours_to_end=hours,
+            wallet_markets=nmk,
+            implication=implication(text),
+            notified=False,
+        ))
+        stats["stored"] += 1
 
-        for t in trades:
-            try:
-                size_usd = float(t.get("size") or 0) * float(t.get("price") or 0)
-            except (TypeError, ValueError):
-                continue
-            if size_usd < MIN_TRADE_USD:
-                continue
-            pct = size_usd / market["liquidity"] if market["liquidity"] else 0
-            if pct < MIN_PCT_OF_LIQUIDITY:
-                continue
-
-            tx_hash = t.get("transactionHash")
-            if not tx_hash or db.query(PolymarketAlert).filter_by(tx_hash=tx_hash).one_or_none():
-                continue
-
-            timestamp = t.get("timestamp")
-            db.add(
-                PolymarketAlert(
-                    tx_hash=tx_hash,
-                    event_title=market["event_title"] or "",
-                    market_question=market["question"] or "",
-                    outcome=t.get("outcome"),
-                    side=t.get("side"),
-                    price=t.get("price"),
-                    size_usd=size_usd,
-                    liquidity_usd=market["liquidity"],
-                    pct_of_liquidity=pct,
-                    wallet=t.get("proxyWallet"),
-                    tag=market["tag"],
-                    event_slug=market["event_slug"],
-                    market_slug=market["market_slug"],
-                    trade_timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else None,
-                )
-            )
-            stats["alerts_found"] += 1
-
+    db.merge(TelegramState(key=STATE_KEY, value=str(max(t.get("timestamp") or 0 for t in trades))))
     db.commit()
-    logger.info("polymarket: scanned=%d alerts=%d", stats["markets_scanned"], stats["alerts_found"])
+    logger.info("polymarket: %s", stats)
     return stats
+
+
+def should_alert(a: PolymarketAlert) -> bool:
+    if a.tag == "mercados":
+        return (a.score or 0) >= ALERT_MIN_SCORE_MARKETS
+    if a.tag == "geopolitica":
+        return (a.score or 0) >= ALERT_MIN_SCORE_GEO
+    return False
+
+
+def format_alert(a: PolymarketAlert) -> str:
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    payout = a.size_usd / a.price if a.price else None
+    lines = [
+        f"🎯 <b>APUESTA SOSPECHOSA</b> · Polymarket · {a.score:.0f}/100",
+        f"<b>{e(a.market_question)}</b>",
+        "",
+        f"💵 {_usd(a.size_usd)} a «{e(a.outcome)}» a {a.price * 100:.0f}¢"
+        + (f" → cobraría {_usd(payout)} si acierta" if payout else ""),
+        *[f"✓ {e(r)}" for r in (a.reasons or "").split(" | ") if r],
+    ]
+    if a.implication:
+        lines += ["", f"📌 <b>Qué podría implicar:</b> {e(a.implication)}"]
+    if a.event_slug:
+        lines += ["", f'<a href="https://polymarket.com/event/{e(a.event_slug)}">Ver mercado</a> · cartera {e((a.wallet or "")[:10])}…']
+    lines += ["", "<i>Cartera anónima: no sabemos quién es · no es asesoramiento</i>"]
+    return "\n".join(lines)
+
+
+def _usd(x: float | None) -> str:
+    if not x:
+        return "?"
+    return f"${x / 1e6:,.1f}M" if x >= 1e6 else f"${x / 1e3:,.0f}k"
+
+
+def notify(db: Session) -> int:
+    from .config import TELEGRAM_BOT_TOKEN
+    from .models import TelegramSubscriber
+    from .telegram_api import send_message
+
+    pending = db.query(PolymarketAlert).filter(PolymarketAlert.notified.is_(False)).order_by(PolymarketAlert.score.desc()).all()
+    chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
+    sent = 0
+    for a in pending:
+        if should_alert(a) and chats and sent < MAX_ALERTS_PER_RUN * len(chats):
+            sent += sum(send_message(c, format_alert(a)) for c in chats)
+        a.notified = True
+    db.commit()
+    return sent
+
+
+def digest_lines(db: Session) -> list[str]:
+    """Top suspicious bets of the last 24h, for the daily digest."""
+    from datetime import timedelta
+
+    since = datetime.utcnow() - timedelta(hours=24)
+    rows = (
+        db.query(PolymarketAlert)
+        .filter(PolymarketAlert.detected_at >= since, PolymarketAlert.score.isnot(None))
+        .order_by(PolymarketAlert.score.desc())
+        .limit(3)
+        .all()
+    )
+    if not rows:
+        return []
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    return ["🎯 <b>Polymarket: apuestas más raras (24 h)</b>"] + [
+        f"  • {r.score:.0f}/100 · {_usd(r.size_usd)} a «{e(r.outcome)}» ({r.price * 100:.0f}¢) en {e(r.market_question[:70])}"
+        for r in rows
+    ]

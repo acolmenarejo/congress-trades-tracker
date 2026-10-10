@@ -100,6 +100,12 @@ def init_db():
 _ADDED_COLUMNS = [
     ("setup_signals", "exit_date", "DATE"),
     ("setup_signals", "exit_price", "FLOAT"),
+    ("polymarket_alerts", "score", "FLOAT"),
+    ("polymarket_alerts", "reasons", "VARCHAR"),
+    ("polymarket_alerts", "hours_to_end", "FLOAT"),
+    ("polymarket_alerts", "wallet_markets", "INTEGER"),
+    ("polymarket_alerts", "implication", "VARCHAR"),
+    ("polymarket_alerts", "notified", "BOOLEAN"),
 ]
 
 

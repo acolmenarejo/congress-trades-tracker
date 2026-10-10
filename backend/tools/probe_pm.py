@@ -1,17 +1,17 @@
-import json, requests
-D="https://data-api.polymarket.com"; G="https://gamma-api.polymarket.com"
-def get(u,p): 
-    r=requests.get(u,params=p,timeout=30); print("GET",r.url,r.status_code); return r.json()
-t=get(f"{D}/trades",{"filterType":"CASH","filterAmount":10000,"limit":500,"takerOnly":"true"})
-print(type(t), len(t)); print(json.dumps(t[:2],indent=1)[:2500])
-import collections
-print("sizes", sorted([round(float(x["size"])*float(x["price"])) for x in t])[-20:])
-print("time span", min(x["timestamp"] for x in t), max(x["timestamp"] for x in t))
-cids=list({x["conditionId"] for x in t})[:20]
-m=get(f"{G}/markets",{"condition_ids":cids,"limit":50})
-print(len(m)); print(json.dumps(m[0],indent=1)[:3000])
-w=t[0]["proxyWallet"]
-a=get(f"{D}/activity",{"user":w,"limit":500})
-print("activity", len(a), json.dumps(a[-1],indent=1)[:800] if a else None)
-v=get(f"{D}/value",{"user":w}); print("value",v)
-tr=get(f"{D}/traded",{"user":w}); print("traded",tr)
+import os, shutil, sys, time
+sys.path.insert(0, "backend")
+shutil.copy("backend/data/congress_trades.db", "/tmp/t.db")
+os.environ["DATABASE_URL"] = "sqlite:////tmp/t.db"
+from app.database import init_db, SessionLocal
+from app import polymarket as pm
+from app.models import PolymarketAlert, TelegramState
+init_db(); db = SessionLocal()
+db.merge(TelegramState(key=pm.STATE_KEY, value=str(int(time.time()) - 24 * 3600))); db.commit()
+t0 = time.time(); print(pm.scan(db), "secs", round(time.time() - t0))
+rows = db.query(PolymarketAlert).filter(PolymarketAlert.score.isnot(None)).order_by(PolymarketAlert.score.desc()).all()
+from collections import Counter
+print("by tag", Counter(r.tag for r in rows), "would alert", sum(pm.should_alert(r) for r in rows))
+for r in rows[:40]:
+    print(f"{r.score:5.1f} {r.tag:11} ${r.size_usd:>10,.0f} @{r.price:.2f} h={r.hours_to_end} w={r.wallet_markets} | {r.market_question[:90]} -> {r.outcome}")
+for r in [r for r in rows if pm.should_alert(r)][:3]:
+    print(pm.format_alert(r)); print("----")

@@ -135,7 +135,15 @@ export interface PolymarketAlert {
   market_slug: string | null;
   trade_timestamp: string | null;
   detected_at: string | null;
+  score: number | null;
+  reasons: string[];
+  hours_to_end: number | null;
+  wallet_markets: number | null;
+  implication: string | null;
+  alerted: boolean;
 }
+
+export type PolymarketCategory = "mercados" | "geopolitica" | "otros";
 
 export interface SetupSignal {
   ticker: string;
@@ -239,8 +247,8 @@ export const api = {
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),
   tickerPrices: (ticker: string, days = 180) =>
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
-  polymarketWhaleBets: (limit = 50) =>
-    getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
+  polymarketWhaleBets: (limit = 50, days = 7, category?: PolymarketCategory) =>
+    getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit, days, category })}`),
   insiders: (days = 60, onlyRelevant = true) =>
     getJSON<InsiderGroup[]>(`/insiders${qs({ days, only_relevant: onlyRelevant })}`),
   setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),

@@ -2,14 +2,19 @@ name: Scan Polymarket whale bets
 
 on:
   schedule:
-    # Every 3 hours — this is a personal watch signal, not real-time
-    # trading, and Polymarket's public API has no auth/rate budget to worry
-    # about here, but no need to hammer it either.
-    - cron: "15 */3 * * *"
+    # Hourly: suspicious bets are about news coming soon (markets that
+    # resolve within days), so a 3h lag was too slow for the Telegram alert.
+    # GitHub's schedule can lag; the scanner reads trades since the last
+    # one it saw, so a late run catches up rather than missing any.
+    - cron: "25 * * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
+
+concurrency:
+  group: polymarket
+  cancel-in-progress: false
 
 jobs:
   scan:
@@ -25,8 +30,10 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
-      - name: Scan Polymarket
+      - name: Scan Polymarket and alert
         working-directory: backend/polymarket
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python scan_whale_bets.py
 
       - name: Commit updated database

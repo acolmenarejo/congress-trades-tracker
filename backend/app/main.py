@@ -190,12 +190,16 @@ def get_ticker_earnings(ticker: str, db: Session = Depends(get_db)):
 
 
 @app.get("/polymarket/whale-bets", response_model=list[PolymarketAlertOut])
-def get_polymarket_whale_bets(limit: int = Query(50, le=200), db: Session = Depends(get_db)):
-    """Unusually large single trades on political/policy Polymarket markets
-    with real remaining uncertainty — see app/polymarket.py. Populated by a
-    scheduled scan (backend/polymarket/scan_whale_bets.py via GitHub
-    Actions), not computed per-request."""
-    return crud.get_polymarket_alerts(db, limit=limit)
+def get_polymarket_whale_bets(
+    limit: int = Query(50, le=200),
+    days: int = Query(7, ge=1, le=90),
+    category: Optional[str] = Query(None, pattern="^(mercados|geopolitica|otros)$"),
+    db: Session = Depends(get_db),
+):
+    """Suspicious Polymarket bets (big, long-shot, short-dated, fresh wallet),
+    most suspicious first — see app/polymarket.py. Populated by a scheduled
+    scan (backend/polymarket/scan_whale_bets.py via GitHub Actions)."""
+    return crud.get_polymarket_alerts(db, limit=limit, days=days, category=category)
 
 
 @app.get("/insiders")
