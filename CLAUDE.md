@@ -173,12 +173,37 @@ y revisión general de mejoras de frontend.
   watchlist y con compras de directivos en 90 días (`breakout_universe`),
   etiquetadas como no probadas. Se guardan en `SetupSignal` con
   `direction="breakout"` para medir su acierto en vivo.
-- Polymarket no se envía por Telegram (solo web) y no tiene relación con
-  empresas: no usarlo para filtrar directivos.
+- Polymarket (`app/polymarket.py`, `polymarket.yml` cada hora, rehecho
+  2026-10-10): busca **apuestas sospechosas**, no "quién va ganando". Nota
+  0-100: tamaño (≥ 10k $), apuesta improbable (precio bajo), se resuelve
+  pronto, cartera casi nueva (`/traded` de data-api) y peso sobre la
+  liquidez. Ignora deportes y cripto a corto plazo (regex `SKIP`). Telegram
+  solo para mercados/economía con nota ≥ 55 y geopolítica ≥ 75; el resto,
+  solo web. Las filas antiguas ("ballenas") tienen `score` NULL y no se
+  muestran ni se avisan. No tiene relación con empresas: no usarlo para
+  filtrar directivos.
+
+## Resumen diario, macro y tamaño de la DB (2026-10-10)
+
+- `app/digest.py`: resumen por Telegram una vez al día pasadas las 07:00 UTC,
+  enviado desde `bot/commands.py` (la ejecución frecuente de `bot-poll.yml`,
+  porque el `schedule:` de GitHub llega con horas de retraso). También con
+  `/resumen`. Secciones: Congreso, directivos, señales abiertas, macro y
+  Polymarket (`EXTRA_SECTIONS`).
+- `app/macro.py` + `macro.yml` (diario): series de FRED vía `fredgraph.csv`
+  (sin clave) y ^MOVE/^VIX de Yahoo en `macro_points`. `/macro` y la página
+  Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
+  mercado (no ajustadas). Unidades: WALCL y WTREGEN vienen en millones (se
+  dividen entre 1000), RRPONTSYD y WRESBAL en miles de millones.
+- `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
+  se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
+  (GitHub rechaza ficheros de > 100 MB).
+- Columnas nuevas en tablas existentes: añadirlas a `database._ADDED_COLUMNS`
+  (SQLite no las crea con `create_all`).
 
 ## Backlog (ver README.md para la lista completa)
 
-Notas rápidas de lo no implementado: digest diario/telegram, comparativa
+Notas rápidas de lo no implementado: comparativa
 demócratas/republicanos más allá del gráfico de compra/venta, simulador
 "qué hubiera pasado si copio a X", detección de trades inusuales cruzando
 calendario legislativo, heatmap por sector. (Discord/email descartado por el usuario.)

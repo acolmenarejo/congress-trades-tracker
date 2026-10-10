@@ -127,7 +127,7 @@ export default function PolymarketWatch() {
               key={c.value}
               onClick={() => setCategory(c.value)}
               className={`px-3 py-1.5 text-sm ${
-                category === c.value ? "bg-ink text-paper dark:bg-slate-100 dark:text-slate-900" : ""
+                category === c.value ? "bg-ink text-paper dark:bg-buy dark:text-ledger" : ""
               }`}
             >
               {c.label}

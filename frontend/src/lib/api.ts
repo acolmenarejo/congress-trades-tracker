@@ -143,6 +143,28 @@ export interface PolymarketAlert {
   alerted: boolean;
 }
 
+export interface MacroIndicator {
+  key: string;
+  name: string;
+  value: number | null;
+  unit: string;
+  as_of: string | null;
+  change: number | null;
+  change_label: string | null;
+  status: "ok" | "watch" | "stress";
+  reading: string;
+  action: string;
+  history: { date: string; value: number }[];
+}
+
+export interface MacroSnapshot {
+  regime: "favorable" | "mixto" | "tenso";
+  summary: string;
+  stress: number;
+  watch: number;
+  indicators: MacroIndicator[];
+}
+
 export type PolymarketCategory = "mercados" | "geopolitica" | "otros";
 
 export interface SetupSignal {
@@ -252,5 +274,6 @@ export const api = {
   insiders: (days = 60, onlyRelevant = true) =>
     getJSON<InsiderGroup[]>(`/insiders${qs({ days, only_relevant: onlyRelevant })}`),
   setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),
+  macro: () => getJSON<MacroSnapshot>("/macro"),
   tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
 };

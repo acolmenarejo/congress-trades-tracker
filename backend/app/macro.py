@@ -130,6 +130,7 @@ class _S:
     def history(self, days: int = 365, step: int = 5) -> list[dict]:
         cut = self.pts[-1][0] - timedelta(days=days) if self.pts else None
         pts = [(d, v) for d, v in self.pts if d >= cut] if cut else []
+        step = step if len(pts) > 120 else 1  # weekly series: keep every point
         sampled = pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])
         return [{"date": d.isoformat(), "value": round(v, 3)} for d, v in sampled]
 
@@ -312,15 +313,16 @@ def snapshot(db: Session) -> dict:
         spread = _S([(d, v - (_S([p for p in iorb.pts if p[0] <= d]).last or v)) for d, v in sofr.pts[-260:]])
         bps = spread.last * 100
         recent = [v for _, v in spread.pts[-20:]]
-        days_above = sum(1 for v in recent if v > 0)
-        if bps > 5 or days_above >= 5:
+        days_above = sum(1 for v in recent if v > 0.02)  # > 2 pb: ignore rounding noise
+        if bps > 5 or days_above >= 8:
             st = "stress"
-            rd = f"SOFR {bps:+.0f} pb sobre el IORB ({days_above} de las últimas 20 sesiones por encima)."
+            rd = f"SOFR {bps:+.0f} pb respecto al IORB ({days_above} de las últimas 20 sesiones más de 2 pb por encima)."
             ac = ("Tensión en la fontanería: falta efectivo en el repo. La Fed suele responder (facilidad de repo, "
                   "parar QT, compras de letras). Hasta entonces, más volatilidad en bolsa y bonos.")
-        elif bps > 0:
-            st, rd = "watch", f"SOFR {bps:+.0f} pb sobre el IORB."
-            ac = "Primer síntoma de efectivo justo en el repo (es normal en fin de mes o de trimestre)."
+        elif bps > 0 or days_above:
+            st = "watch"
+            rd = f"SOFR {bps:+.0f} pb respecto al IORB ({days_above} de las últimas 20 sesiones más de 2 pb por encima)."
+            ac = "Primeros síntomas de efectivo justo en el repo (es normal en fin de mes o de trimestre)."
         else:
             st, rd = "ok", f"SOFR {bps:+.0f} pb respecto al IORB: el repo funciona con normalidad."
             ac = "Fontanería sin tensiones."

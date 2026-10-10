@@ -8,6 +8,7 @@ import Watchlist from "./pages/Watchlist";
 import PolymarketWatch from "./pages/PolymarketWatch";
 import MyTrackRecord from "./pages/MyTrackRecord";
 import Insiders from "./pages/Insiders";
+import Macro from "./pages/Macro";
 import MemberPage from "./pages/MemberPage";
 import TickerPage from "./pages/TickerPage";
 
@@ -21,6 +22,7 @@ function App() {
         <Route path="compliance" element={<Compliance />} />
         <Route path="watchlist" element={<Watchlist />} />
         <Route path="directivos" element={<Insiders />} />
+        <Route path="macro" element={<Macro />} />
         <Route path="polymarket" element={<PolymarketWatch />} />
         <Route path="mi-seguimiento" element={<MyTrackRecord />} />
         <Route path="members/:matchKey" element={<MemberPage />} />
