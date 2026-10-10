@@ -171,6 +171,20 @@ export interface MacroSnapshot {
   watch: number;
   indicators: MacroIndicator[];
   polymarket: MacroPolymarket;
+  kalshi?: KalshiExpectation[];
+}
+
+export interface KalshiExpectation {
+  key: string;
+  title: string;
+  market: string | null;
+  value: string;
+  status: "ok" | "watch" | "stress" | null;
+  reading: string;
+  action: string;
+  change: number | null;
+  change_label: string | null;
+  url: string | null;
 }
 
 export type PolymarketCategory = "mercados" | "geopolitica" | "otros";

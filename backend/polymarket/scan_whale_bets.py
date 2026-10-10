@@ -19,8 +19,8 @@ except ImportError:
     pass
 
 from app.database import SessionLocal, init_db  # noqa: E402
-from app.models import PolymarketAlert  # noqa: E402
-from app import polymarket_macro  # noqa: E402
+from app.models import MacroPoint, PolymarketAlert  # noqa: E402
+from app import kalshi_expect, polymarket_macro  # noqa: E402
 from app.polymarket import notify, prune, scan  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -42,5 +42,10 @@ if __name__ == "__main__":
             polymarket_macro.fetch(db)  # odds for the Macro page cross-check
         except Exception:
             logging.exception("polymarket_macro failed")
+        try:
+            spx = db.query(MacroPoint).filter_by(series="^GSPC").order_by(MacroPoint.date.desc()).first()
+            kalshi_expect.fetch(db, spx_now=spx.value if spx else None)  # Kalshi-only forecasts
+        except Exception:
+            logging.exception("kalshi_expect failed")
     finally:
         db.close()

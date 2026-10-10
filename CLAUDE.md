@@ -221,6 +221,16 @@ y revisión general de mejoras de frontend.
   llegaba cada 3-9 h); input `hours` para recargar horas pasadas sin Telegram. Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
   dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
   peticiones con User-Agent de navegador: no usar uno.
+- `app/kalshi_expect.py` (2026-10-10, dentro de `polymarket.yml`): lo que
+  Kalshi descuenta y Polymarket no tiene con liquidez: nóminas (y prob. de
+  dato negativo), paro vs UNRATE, PIB, IPC mensual, IPC subyacente, PCE,
+  tipo de la Fed tras las 2 próximas reuniones, recesión el año que viene,
+  S&P a fin de año (y prob. de caída ≥ 10% desde ^GSPC) y colas del WTI
+  (> 120 $, < 65 $). Series `KS_*_MED` etc. en `macro_points`; títulos en
+  `telegram_state` `kalshi_expect`. `macro.kalshi_view` les pone estado
+  (vigilar/tensión) y entran en `notify_changes` y el resumen diario. Las
+  operaciones de Kalshi son anónimas y pequeñas (máx. ~20k $ en 72 h): no
+  sirven para detectar info privilegiada, no intentarlo.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).
