@@ -195,6 +195,34 @@ def get_polymarket_whale_bets(limit: int = Query(50, le=200), db: Session = Depe
     return crud.get_polymarket_alerts(db, limit=limit)
 
 
+@app.get("/setups/signals")
+def get_setup_signals(db: Session = Depends(get_db)):
+    """Technical setup alerts that were sent (app/setups.py) with their live
+    result: hit target, hit stop, closed by time, or still open with the
+    return so far. Prices come from the shared cache/Yahoo per request —
+    there are only a handful of signals."""
+    from datetime import timedelta
+
+    from . import prices, setups
+    from .models import SetupSignal
+
+    out = []
+    for sig in db.query(SetupSignal).order_by(SetupSignal.signal_date.desc()).limit(100):
+        bars = prices.get_price_series(db, sig.ticker, sig.signal_date - timedelta(days=5), date.today())
+        res = setups.evaluate_signal(bars, sig)
+        out.append({
+            "ticker": sig.ticker,
+            "signal_date": sig.signal_date,
+            "score": sig.score,
+            "entry": sig.entry,
+            "stop": sig.stop,
+            "target": sig.target,
+            "reasons": sig.reasons.split(" | ") if sig.reasons else [],
+            **res,
+        })
+    return out
+
+
 def _dispatch_workflow(workflow_file: str) -> int:
     resp = requests.post(
         f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{workflow_file}/dispatches",

@@ -212,6 +212,5 @@ Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settin
 - Comparativa demócratas vs. republicanos más allá del gráfico compra/venta del dashboard
 - Simulador "qué hubiera pasado si copio a X" (cartera virtual con evolución)
 - Detección de trades inusuales cruzando calendario legislativo
-- Webhook genérico (Discord/email) además de Telegram
 - API pública de solo lectura documentada
 - Heatmap de actividad por sector/ticker

@@ -14,13 +14,21 @@ contact email (anything else gets 403) — set SEC_USER_AGENT, e.g.
 
 Alert rule (deliberately strict — every alert is meant to be worth reading):
   - open-market purchase (P), filing total >= MIN_STORE_USD is stored;
-  - alert if >= BIG_BUY_USD, or C-suite officer >= OFFICER_BUY_USD, or a
-    cluster (>= 2 distinct insiders buying the same ticker in 30 days);
-  - 10%-owner-only filers (usually funds) need >= FUND_BUY_USD;
-  - skip penny stocks (price < MIN_PRICE).
+  - only "company insiders" count: officers/directors who are people, of an
+    operating company. Out: 10%-owner-only filers (funds, insurers buying
+    for their book), entities (LLC, LP, Capital...), closed-end funds / ETFs
+    / mutual funds / BDCs as issuers, and stocks under MIN_PRICE;
+  - alert if the buy grows the insider's position by >= MIN_INCREASE (or a
+    C-suite officer by >= CSUITE_MIN_INCREASE) and is >= MIN_ALERT_USD —
+    size relative to what they already own says more than the dollar
+    amount, which mostly tracks how rich the insider is;
+  - or a cluster: >= CLUSTER_MIN_INSIDERS distinct insiders buying the same
+    ticker within CLUSTER_DAYS. A cluster goes out as ONE message listing
+    every buyer, not one message per filing.
 """
 import html
 import logging
+import math
 import os
 import re
 import time
@@ -39,12 +47,27 @@ FEED_URL = "https://www.sec.gov/cgi-bin/browse-edgar"
 MAX_FEED_PAGES = 10  # 100 entries/page; enough to cover several hours of filings
 
 MIN_STORE_USD = 50_000
-BIG_BUY_USD = 500_000
-OFFICER_BUY_USD = 150_000
-FUND_BUY_USD = 1_000_000
-MIN_PRICE = 2.0
+MIN_ALERT_USD = 100_000
+MIN_INCREASE = 0.20
+CSUITE_MIN_INCREASE = 0.10
+MIN_PRICE = 5.0
 CLUSTER_DAYS = 30
+CLUSTER_MIN_INSIDERS = 3
+CLUSTER_MIN_INCREASE = 0.05  # a 1% top-up by a director is routine, not conviction
+MAX_FILING_LAG_DAYS = 30  # late filings: the information is stale by the time it's public
 C_SUITE = re.compile(r"(?<!vice )(?<!vice-)\b(CEO|CFO|COO|President|Chief|Chair(man|woman|person)?)\b", re.I)
+
+# Issuers that are investment vehicles, not operating companies: a director
+# of a closed-end fund buying its shares says nothing about a business.
+FUND_ISSUER = re.compile(r"\bfunds?\b|\bBDC\b|\bETF\b|\btrust\b(?!,? inc)|\bportfolio\b|pershing square usa", re.I)
+FUND_ROLE = re.compile(r"portfolio manager|advis|chief investment officer", re.I)
+# Filers that are entities rather than people (funds, family offices, insurers).
+ENTITY_NAME = re.compile(
+    r"\b(capital|management|partners|L\.?P|LLC|L\.?L\.?C|fund|trust|insurance|ltd|limited|holdings?|advisors?|"
+    r"investments?|group|inc|corp|corporation|company|co|S\.?A|N\.?V|AG|GmbH|plc|foundation)\b\.?",
+    re.I,
+)
+PLAIN_TICKER = re.compile(r"^[A-Z]{1,5}$")
 
 SCAN_STATE_KEY = "insiders_last_scan"
 SCAN_EVERY_MINUTES = 30
@@ -166,27 +189,72 @@ def _extract_xml(submission: str) -> str | None:
     return m.group(1) if m else None
 
 
+def is_company_insider(t: InsiderTrade) -> bool:
+    """A person on the inside of an operating company (see module docstring)."""
+    if (t.avg_price or 0) < MIN_PRICE:
+        return False
+    if not (t.is_officer or t.is_director):
+        return False  # 10%-owner-only: almost always a fund buying for its book
+    if not PLAIN_TICKER.match(t.ticker or "") or (len(t.ticker) == 5 and t.ticker.endswith("X")):
+        return False  # foreign listings ("ASX:LNW"), mutual funds ("BBASX")
+    if FUND_ISSUER.search(t.issuer_name or "") or FUND_ROLE.search(t.role or ""):
+        return False
+    if ENTITY_NAME.search(t.insider_name or ""):
+        return False
+    if t.transaction_date and t.filed_at and (t.filed_at.date() - t.transaction_date).days > MAX_FILING_LAG_DAYS:
+        return False
+    return not _looks_like_ipo(t)
+
+
+def _looks_like_ipo(t: InsiderTrade) -> bool:
+    """Insiders buying in their own company's IPO file it as an open-market
+    purchase (code P), at the round offering price, for a brand-new position.
+    That's a listing formality, not a bet on undervaluation."""
+    px = t.avg_price or 0
+    return position_increase(t) == math.inf and abs(px * 2 - round(px * 2)) < 1e-6
+
+
+def position_increase(t: InsiderTrade) -> float | None:
+    """Shares bought / shares held before. inf for a brand-new position,
+    None when the filing doesn't say what they hold afterwards."""
+    if not t.shares_after:
+        return None
+    before = t.shares_after - t.shares
+    return t.shares / before if before > 0 else math.inf
+
+
+def _is_csuite(t: InsiderTrade) -> bool:
+    return bool(t.is_officer and C_SUITE.search(t.role or ""))
+
+
 def _cluster(db: Session, t: InsiderTrade) -> list[InsiderTrade]:
+    """Other qualifying insiders' buys of the same ticker in the window."""
     since = (t.transaction_date or date.today()) - timedelta(days=CLUSTER_DAYS)
     rows = (
         db.query(InsiderTrade)
         .filter(InsiderTrade.ticker == t.ticker, InsiderTrade.transaction_date >= since, InsiderTrade.accession != t.accession)
         .all()
     )
-    return [r for r in rows if r.insider_cik != t.insider_cik]
+    return [r for r in rows if r.insider_cik != t.insider_cik and is_company_insider(r)]
+
+
+def _counts_for_cluster(t: InsiderTrade) -> bool:
+    inc = position_increase(t)
+    return inc is None or inc >= CLUSTER_MIN_INCREASE
 
 
 def should_alert(db: Session, t: InsiderTrade) -> tuple[bool, list[InsiderTrade]]:
+    if not is_company_insider(t):
+        return False, []
     others = _cluster(db, t)
-    if (t.avg_price or 0) < MIN_PRICE:
-        return False, others
-    if t.is_ten_pct and not (t.is_officer or t.is_director):
-        return t.value_usd >= FUND_BUY_USD, others
-    if t.value_usd >= BIG_BUY_USD:
+    committed = {o.insider_cik for o in others if _counts_for_cluster(o)}
+    if _counts_for_cluster(t) and len(committed | {t.insider_cik}) >= CLUSTER_MIN_INSIDERS:
         return True, others
-    if t.is_officer and C_SUITE.search(t.role or "") and t.value_usd >= OFFICER_BUY_USD:
-        return True, others
-    return len(others) >= 1, others
+    inc = position_increase(t)
+    if t.value_usd >= MIN_ALERT_USD and inc is not None:
+        if inc >= MIN_INCREASE or (_is_csuite(t) and inc >= CSUITE_MIN_INCREASE):
+            return True, others
+    return False, others
 
 
 def _fmt_usd(x: float) -> str:
@@ -224,38 +292,74 @@ def _fmt_shares(x: float) -> str:
     return f"{x / 1e6:,.2f}M" if x >= 1e6 else f"{x:,.0f}"
 
 
-def format_alert(t: InsiderTrade, others: list[InsiderTrade], analysis=None, db: Session | None = None) -> str:
-    """Labelled so each line reads on its own. `analysis` is the optional
+def _pos_line(t: InsiderTrade) -> str | None:
+    inc = position_increase(t)
+    if inc is None:
+        return None
+    return "posición nueva" if inc == math.inf else f"+{inc * 100:.0f}% su posición"
+
+
+def format_alert(buys: list[InsiderTrade], analysis=None, db: Session | None = None) -> str:
+    """One message per ticker. `buys` are the qualifying purchases (newest
+    last); with several insiders it becomes a cluster summary listing each
+    buyer. Labelled so each line reads on its own. `analysis` is the optional
     (bars, features, Setup) from setups.analyze() for the technical block."""
     from . import setups
     from .company import congress_lines, profile_lines
 
     e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    t = buys[-1]
     company = _pretty(t.issuer_name) or t.ticker
-    lines = [
-        f"🏢 <b>COMPRA DE DIRECTIVO</b> · <b>{e(t.ticker)}</b> ({e(company)})",
-        *(profile_lines(db, t.ticker) if db is not None else []),
-        "",
-        f"👤 <b>Quién:</b> {e(_pretty(t.insider_name))} — {e(_role_es(t.role))}",
-        f"💵 <b>Compra:</b> {_fmt_usd(t.value_usd)} · {_fmt_shares(t.shares)} acciones a ${t.avg_price:,.2f}",
-    ]
-    if t.transaction_date:
-        published = f" · detectada {t.filed_at:%d/%m}" if t.filed_at else ""
-        lines.append(f"📅 <b>Fecha de compra:</b> {t.transaction_date:%d/%m}{published}")
-    if t.shares_after and t.shares_after > t.shares:
-        pct = t.shares / (t.shares_after - t.shares) * 100
-        lines.append(f"📊 <b>Posición:</b> {_fmt_shares(t.shares_after)} acciones tras la compra (+{pct:.0f}%)")
-    if others:
-        total = sum(o.value_usd for o in others) + t.value_usd
-        lines.append(f"👥 <b>{len({o.insider_cik for o in others}) + 1} directivos</b> comprando en {CLUSTER_DAYS} días ({_fmt_usd(total)} en total)")
+    insiders = {b.insider_cik or b.insider_name for b in buys}
+    total = sum(b.value_usd for b in buys)
+    shares = sum(b.shares for b in buys)
+    avg_price = sum(b.value_usd for b in buys) / shares if shares else t.avg_price
+
+    if len(insiders) == 1:
+        lines = [
+            f"🏢 <b>COMPRA DE DIRECTIVO</b> · <b>{e(t.ticker)}</b> ({e(company)})",
+            *(profile_lines(db, t.ticker) if db is not None else []),
+            "",
+            f"👤 <b>Quién:</b> {e(_pretty(t.insider_name))} — {e(_role_es(t.role))}",
+            f"💵 <b>Compra:</b> {_fmt_usd(total)} · {_fmt_shares(shares)} acciones a ${avg_price:,.2f}",
+        ]
+        if t.transaction_date:
+            published = f" · detectada {t.filed_at:%d/%m}" if t.filed_at else ""
+            lines.append(f"📅 <b>Fecha de compra:</b> {t.transaction_date:%d/%m}{published}")
+        pos = _pos_line(t)
+        if pos and t.shares_after:
+            lines.append(f"📊 <b>Posición:</b> {_fmt_shares(t.shares_after)} acciones tras la compra ({pos})")
+    else:
+        lines = [
+            f"👥 <b>{len(insiders)} DIRECTIVOS COMPRANDO</b> · <b>{e(t.ticker)}</b> ({e(company)})",
+            *(profile_lines(db, t.ticker) if db is not None else []),
+            "",
+            f"💵 <b>Total:</b> {_fmt_usd(total)} en {CLUSTER_DAYS} días · precio medio ${avg_price:,.2f}",
+        ]
+        per_insider: dict[str, list[InsiderTrade]] = {}
+        for b in buys:
+            per_insider.setdefault(b.insider_cik or b.insider_name, []).append(b)
+        for bs in sorted(per_insider.values(), key=lambda bs: -sum(b.value_usd for b in bs)):
+            last = max(bs, key=lambda b: (b.transaction_date or date.min))
+            bought = sum(b.shares for b in bs)
+            pos = None
+            if last.shares_after:
+                before = last.shares_after - bought
+                pos = "posición nueva" if before <= 0 else f"+{bought / before * 100:.0f}% su posición"
+            when = f" · {last.transaction_date:%d/%m}" if last.transaction_date else ""
+            lines.append(
+                f"• {e(_pretty(last.insider_name))} ({e(_role_es(last.role))}): {_fmt_usd(sum(b.value_usd for b in bs))}"
+                + (f", {pos}" if pos else "") + when
+            )
 
     if analysis:
         _, f, st = analysis
-        vs_buy = (f["close"] / t.avg_price - 1) * 100 if t.avg_price else None
+        vs_buy = (f["close"] / avg_price - 1) * 100 if avg_price else None
         lines += [
             "",
             f"<b>Análisis técnico</b> · {st.score:.0f}/100 {setups._score_bar(st.score)}",
-            f"Precio actual {setups._fmt_price(f['close'])}" + (f" ({vs_buy:+.0f}% vs. su compra)" if vs_buy is not None else ""),
+            f"Precio actual {setups._fmt_price(f['close'])}"
+            + (f" ({vs_buy:+.0f}% vs. {'su compra' if len(insiders) == 1 else 'su precio medio'})" if vs_buy is not None else ""),
             *[f"✓ {e(r)}" for r in st.reasons[:3]],
             *[f"⚠ {e(r)}" for r in st.risks[:2]],
         ]
@@ -330,23 +434,43 @@ def notify(db: Session) -> int:
     if not pending:
         return 0
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
-    sent = 0
+
+    # One message per ticker: several insiders of the same company filing in
+    # the same scan (typical of a cluster) are summarised together, along with
+    # the qualifying buys from earlier in the window.
+    groups: dict[str, dict[str, InsiderTrade]] = {}
     for t in pending:
         ok, others = should_alert(db, t)
-        if ok and chats:
-            try:
-                analysis = setups.analyze(db, t.ticker)
-            except Exception:
-                logger.exception("insiders: technical analysis failed for %s", t.ticker)
-                analysis = None
-            body = format_alert(t, others, analysis, db)
-            png = None
-            if analysis:
-                bars, f, _ = analysis
-                marker = [(t.transaction_date or date.today(), t.avg_price, "Compra directivo")] if t.avg_price else None
-                png = setups.render_chart(t.ticker, bars, f, markers=marker)
-            sent += sum(send_alert(c, body, png) for c in chats)
         t.notified = True
+        if not ok:
+            continue
+        g = groups.setdefault(t.ticker, {})
+        for b in (t, *others):
+            g[b.accession] = b
+
+    sent = 0
+    for ticker, by_acc in groups.items():
+        buys = sorted(by_acc.values(), key=lambda b: (b.transaction_date or date.min, b.filed_at or datetime.min))
+        if not chats:
+            continue
+        try:
+            analysis = setups.analyze(db, ticker)
+        except Exception:
+            logger.exception("insiders: technical analysis failed for %s", ticker)
+            analysis = None
+        body = format_alert(buys, analysis, db)
+        png = None
+        if analysis:
+            bars, f, _ = analysis
+            label = "Compra directivo" if len({b.insider_cik for b in buys}) == 1 else "Compras directivos"
+            dated = [b for b in buys if b.avg_price]
+            marker = None
+            if dated:
+                sh = sum(b.shares for b in dated)
+                first = min((b.transaction_date for b in dated if b.transaction_date), default=date.today())
+                marker = [(first, sum(b.value_usd for b in dated) / sh, label)]
+            png = setups.render_chart(ticker, bars, f, markers=marker)
+        sent += sum(send_alert(c, body, png) for c in chats)
     db.commit()
-    logger.info("insiders: %d pending, %d messages sent", len(pending), sent)
+    logger.info("insiders: %d pending, %d tickers alerted, %d messages sent", len(pending), len(groups), sent)
     return sent

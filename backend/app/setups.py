@@ -527,17 +527,38 @@ def universe(db, min_trades: int = 5) -> tuple[list[str], dict[str, list]]:
     return tickers + [t for t in EXTRA_TICKERS if t not in tickers], events
 
 
-def _simulate_outcome(bars: list[dict], sig) -> str | None:
-    """target/stop/time for a past signal, once its horizon has elapsed."""
-    after = [b for b in bars if b["date"] > sig.signal_date]
-    if len(after) < HORIZON_BARS:
-        return None
-    for b in after[:HORIZON_BARS]:
+def evaluate_signal(bars: list[dict], sig) -> dict:
+    """Live result of a sent signal: resolves as soon as the stop or target is
+    touched (stop first if both fall in the same bar — the conservative
+    reading the backtest uses), or by time after HORIZON_BARS sessions.
+    status: open | target | stop | time."""
+    after = [b for b in bars if b["date"] > sig.signal_date and b.get("close")]
+    res = {"status": "open", "exit_date": None, "exit_price": None, "bars": len(after),
+           "last_close": after[-1]["close"] if after else None}
+    for i, b in enumerate(after[:HORIZON_BARS]):
         if b["low"] <= sig.stop:
-            return "stop"
+            res.update(status="stop", exit_date=b["date"], exit_price=sig.stop, bars=i + 1)
+            break
         if b["high"] >= sig.target:
-            return "target"
-    return "time"
+            res.update(status="target", exit_date=b["date"], exit_price=sig.target, bars=i + 1)
+            break
+    else:
+        if len(after) >= HORIZON_BARS:
+            last = after[HORIZON_BARS - 1]
+            res.update(status="time", exit_date=last["date"], exit_price=last["close"], bars=HORIZON_BARS)
+    ref = res["exit_price"] or res["last_close"]
+    res["return_pct"] = (ref / sig.entry - 1) * 100 if ref and sig.entry else None
+    return res
+
+
+def format_outcome(sig, res: dict) -> str:
+    icon, label = {"target": ("✅", "objetivo alcanzado"), "stop": ("❌", "stop tocado"),
+                   "time": ("⏱", "cerrada por tiempo (1 mes)")}[res["status"]]
+    return "\n".join([
+        f"{icon} <b>{sig.ticker}</b> · señal del {sig.signal_date:%d/%m}: {label}",
+        f"Entrada {_fmt_price(sig.entry)} → salida {_fmt_price(res['exit_price'])} "
+        f"(<b>{res['return_pct']:+.1f}%</b>) en {res['bars']} sesiones",
+    ])
 
 
 def _clean_name(raw: str) -> str:
@@ -555,7 +576,7 @@ def scan_and_alert(db) -> dict:
     from .models import SetupSignal, TelegramSubscriber
     from .models import Trade
     from .company import congress_lines, profile_lines
-    from .telegram_api import send_alert
+    from .telegram_api import send_alert, send_message
 
     tickers, events = universe(db)
     start, end = date.today() - timedelta(days=560), date.today()
@@ -570,13 +591,15 @@ def scan_and_alert(db) -> dict:
     }
 
     candidates = []
+    resolved = []
     for tk in tickers:
         bars = prices._fetch_from_yahoo(tk, start, end)
         prices.throttle()
         if tk in open_signals:
-            outcome = _simulate_outcome(bars, open_signals[tk])
-            if outcome:
-                open_signals[tk].outcome = outcome
+            res = evaluate_signal(bars, open_signals[tk])
+            if res["status"] != "open":
+                open_signals[tk].outcome = res["status"]
+                resolved.append((open_signals[tk], res))
         if not bars or bars[-1]["date"] != last_session or tk in recent:
             continue
         f = compute_features(bars, spy, events.get(tk))[-1]
@@ -589,6 +612,8 @@ def scan_and_alert(db) -> dict:
     candidates.sort(key=lambda x: (-x[0], x[1]))
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
     sent = 0
+    for sig, res in resolved:
+        sent += sum(send_message(c, format_outcome(sig, res)) for c in chats)
     for _, tk, f, st, bars in candidates[:MAX_ALERTS_PER_RUN]:
         if f["atr_pct"] >= HIGH_VOL_ATR_PCT:
             st.reasons.append("Alta volatilidad: el grupo que mejor rindió en el backtest")

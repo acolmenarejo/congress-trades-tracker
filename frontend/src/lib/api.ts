@@ -137,6 +137,22 @@ export interface PolymarketAlert {
   detected_at: string | null;
 }
 
+export interface SetupSignal {
+  ticker: string;
+  signal_date: string;
+  score: number;
+  entry: number;
+  stop: number;
+  target: number;
+  reasons: string[];
+  status: "open" | "target" | "stop" | "time";
+  exit_date: string | null;
+  exit_price: number | null;
+  bars: number;
+  last_close: number | null;
+  return_pct: number | null;
+}
+
 export interface TradeFilters {
   member?: string;
   ticker?: string;
@@ -202,5 +218,6 @@ export const api = {
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
   polymarketWhaleBets: (limit = 50) =>
     getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
+  setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),
   tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
 };

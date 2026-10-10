@@ -148,15 +148,27 @@ y revisión general de mejoras de frontend.
   pierden dinero en todos los niveles, por eso no se alertan. No reajustar
   pesos mirando el backtest sin separar in/out-of-sample.
 - `app/insiders.py` + `insiders.yml` (cada 30 min, con `concurrency`): compras
-  en mercado abierto (Form 4, código P) de SEC EDGAR. SEC exige email en el
+  en mercado abierto (Form 4, código P) de SEC EDGAR. Filtro (2026-10-10, el
+  usuario se quejaba de ~7 alertas/día): solo directivos/consejeros personas
+  físicas de empresas operativas (fuera accionistas 10% solo, entidades,
+  fondos cerrados/ETF/BDC, precio < 5 $, compras en la OPV, filings con > 30
+  días de retraso); alerta si la compra sube su posición ≥ 20% (CEO/CFO ≥ 10%)
+  y ≥ 100k $, o si ≥ 3 directivos compran en 30 días. Un ticker = un mensaje
+  (el cluster se resume en uno). Con los datos de sept-oct: de 98 a ~8 mensajes
+  en 2 semanas. SEC exige email en el
   User-Agent → secreto `SEC_USER_AGENT`. Fuera de `bot-poll.yml` a propósito:
   un escaneo tarda minutos y solaparía pushes del SQLite.
 - Ambas alertas van a **todos** los suscriptores, no dependen de la watchlist.
-  `SetupSignal` guarda cada señal enviada para medir el acierto en vivo.
+  `SetupSignal` guarda cada señal enviada para medir el acierto en vivo:
+  `setups.yml` la cierra en cuanto toca objetivo/stop (o a los 20 días), avisa
+  por Telegram del resultado, y `/setups/signals` + `SetupSignalsCard` lo
+  muestran en el Dashboard.
+- Polymarket no se envía por Telegram (solo web) y no tiene relación con
+  empresas: no usarlo para filtrar directivos.
 
 ## Backlog (ver README.md para la lista completa)
 
 Notas rápidas de lo no implementado: digest diario/telegram, comparativa
 demócratas/republicanos más allá del gráfico de compra/venta, simulador
 "qué hubiera pasado si copio a X", detección de trades inusuales cruzando
-calendario legislativo, webhook genérico (Discord/email), heatmap por sector.
+calendario legislativo, heatmap por sector. (Discord/email descartado por el usuario.)

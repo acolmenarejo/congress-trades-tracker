@@ -12,6 +12,7 @@ import HighValueBadge from "../components/HighValueBadge";
 import OptionBadge from "../components/OptionBadge";
 import WatchlistTeaser from "../components/WatchlistTeaser";
 import PolymarketTeaser from "../components/PolymarketTeaser";
+import SetupSignalsCard from "../components/SetupSignalsCard";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
 import { useCommitteesForMembers } from "../hooks/useCommittees";
 import { detectConflict } from "../lib/conflictOfInterest";
@@ -126,6 +127,8 @@ export default function Dashboard() {
       <ConflictWatchCard trades={trades} />
 
       <SoloMoversCard trades={trades} />
+
+      <SetupSignalsCard />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <WatchlistTeaser />
