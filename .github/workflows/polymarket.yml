@@ -37,10 +37,22 @@ jobs:
         run: python scan_whale_bets.py
 
       - name: Commit updated database
+        # Same retry/merge loop as insiders.yml: hourly now, so it races the
+        # other workflows pushing the SQLite more often.
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add backend/data/congress_trades.db
-          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: refresh polymarket whale alerts [skip ci]"
-          git pull --rebase --autostash
-          git push
+          DB=backend/data/congress_trades.db
+          for attempt in 1 2 3 4 5; do
+            git add $DB
+            git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+            git commit -q -m "chore: refresh polymarket suspicious bets [skip ci]"
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            cp $DB /tmp/ours.db
+            git fetch -q origin master
+            git reset -q --hard origin/master
+            python backend/tools/merge_tables.py /tmp/ours.db $DB polymarket_alerts "telegram_state:key LIKE 'polymarket%'"
+            sleep $((attempt * 5))
+          done
+          exit 1
