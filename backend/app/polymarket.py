@@ -51,7 +51,9 @@ SKIP = re.compile(
     r"tennis|atp|wta|golf|pga|f1|formula 1|nascar|boxing|cricket|esports?|dota|cs2|counter-strike|valorant|"
     r"league of legends|lol:|overwatch|super bowl|world series|stanley cup|grand slam|match|game \d|"
     r"vs\.?|o/u|spread|touchdown|goals?|oscars?|grammys?|emmys?|eurovision|box office|album|song|"
-    r"up or down|bitcoin above|ethereum above|btc|eth price|solana above|xrp above)\b",
+    r"up or down|bitcoin above|ethereum above|btc|eth price|solana above|xrp above|exact score|fc|tweets?|"
+    r"win on \d{4}-\d\d-\d\d|price of (bitcoin|ethereum|solana|xrp)|"
+    r"(bitcoin|ethereum|solana|xrp|dogecoin) (dip|reach|hit|above|below))\b",
     re.I,
 )
 MARKETS = re.compile(
@@ -64,7 +66,7 @@ MARKETS = re.compile(
 )
 GEO = re.compile(
     r"\b(arrest\w*|captured?|ousted?|resign\w*|coup|invade\w*|invasion|strikes?|attack\w*|war|ceasefire|"
-    r"missile|nuclear|regime|maduro|venezuela|iran|israel|gaza|hezbollah|houthis?|taiwan|china|russia|"
+    r"missile|nuclear|regime|maduro|venezuela\w*|iran\w*|blockade|israel\w*|gaza|hezbollah|houthis?|taiwan|china|russia|"
     r"ukraine|putin|zelensky|xi jinping|kim jong|north korea|cuba|hormuz)\b",
     re.I,
 )

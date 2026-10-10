@@ -189,6 +189,16 @@ def get_ticker_earnings(ticker: str, db: Session = Depends(get_db)):
     return crud.get_earnings_dates(db, ticker)
 
 
+@app.get("/macro")
+def get_macro(db: Session = Depends(get_db)):
+    """Rates, bond volatility, credit and liquidity plumbing with a reading
+    and what it implies per indicator — see app/macro.py. Data refreshed
+    daily by macro.yml; this only reads."""
+    from . import macro
+
+    return macro.snapshot(db)
+
+
 @app.get("/polymarket/whale-bets", response_model=list[PolymarketAlertOut])
 def get_polymarket_whale_bets(
     limit: int = Query(50, le=200),

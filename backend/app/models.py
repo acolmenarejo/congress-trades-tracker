@@ -195,6 +195,18 @@ class PolymarketAlert(Base):
     notified = Column(Boolean, nullable=True)
 
 
+class MacroPoint(Base):
+    """One daily/weekly observation of a macro series (FRED or Yahoo), kept
+    for the Macro page and the digest. See app/macro.py."""
+
+    __tablename__ = "macro_points"
+    __table_args__ = {"sqlite_with_rowid": False}
+
+    series = Column(String, primary_key=True)
+    date = Column(Date, primary_key=True)
+    value = Column(Float, nullable=False)
+
+
 class TelegramState(Base):
     """Tiny key-value store, e.g. the last processed Telegram update_id."""
 

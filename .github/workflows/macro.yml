@@ -1,0 +1,53 @@
+name: Refresh macro data
+
+on:
+  schedule:
+    # Weekdays after the US close; FRED publishes most daily series the
+    # next morning, so each run mostly picks up the previous day.
+    - cron: "15 22 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macro
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Fetch FRED and Yahoo series
+        working-directory: backend/macro
+        run: python fetch_macro.py
+
+      - name: Commit updated database
+        # Same retry/merge loop as insiders.yml (a binary SQLite can't be rebased).
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          DB=backend/data/congress_trades.db
+          for attempt in 1 2 3 4 5; do
+            git add $DB
+            git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+            git commit -q -m "chore: refresh macro data [skip ci]"
+            if git pull --rebase -q && git push -q; then exit 0; fi
+            git rebase --abort 2>/dev/null || true
+            cp $DB /tmp/ours.db
+            git fetch -q origin master
+            git reset -q --hard origin/master
+            python backend/tools/merge_tables.py /tmp/ours.db $DB macro_points
+            sleep $((attempt * 5))
+          done
+          exit 1

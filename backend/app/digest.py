@@ -5,7 +5,7 @@ looked like a bug in Sept 2026 — it wasn't).
 Sent once a day from the frequent bot-poll run (bot/commands.py) as soon as
 it's past DIGEST_HOUR_UTC, because GitHub's own `schedule:` lags hours.
 Also on demand with /resumen. Sections are separate functions so new
-sources (Polymarket, macro) can append their own lines.
+sources (Polymarket, macro) add their own lines.
 """
 import html
 import logging
@@ -108,6 +108,12 @@ def build(db: Session, now: datetime | None = None) -> str:
     return "\n".join(lines)
 
 
+def macro_lines(db: Session) -> list[str]:
+    from . import macro
+
+    return macro.digest_lines(db)
+
+
 def polymarket_lines(db: Session) -> list[str]:
     from . import polymarket
 
@@ -115,7 +121,7 @@ def polymarket_lines(db: Session) -> list[str]:
 
 
 # Sections without a time window (current state).
-EXTRA_SECTIONS: list = [polymarket_lines]
+EXTRA_SECTIONS: list = [macro_lines, polymarket_lines]
 
 
 def maybe_send(db: Session, now: datetime | None = None) -> bool:
