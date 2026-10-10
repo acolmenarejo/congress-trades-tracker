@@ -193,8 +193,9 @@ y revisión general de mejoras de frontend.
 - `app/macro.py` + `macro.yml` (diario): series de FRED vía `fredgraph.csv`
   (sin clave) y ^MOVE/^VIX de Yahoo en `macro_points`. `/macro` y la página
   Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
-  mercado (no ajustadas). Unidades: WALCL y WTREGEN vienen en millones (se
-  dividen entre 1000), RRPONTSYD y WRESBAL en miles de millones.
+  mercado (no ajustadas). Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
+  dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
+  peticiones con User-Agent de navegador: no usar uno.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).

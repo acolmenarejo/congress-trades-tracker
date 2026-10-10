@@ -14,7 +14,7 @@ Suspicion score, 0-100 (see `score_trade`):
   horizon  0-20  resolves in ≤ 1 day → 20, ≤ 3 d → 15, ≤ 7 d → 10, ≤ 14 d → 5
   wallet   0-20  ≤ 3 markets ever traded → 20, ≤ 10 → 12, ≤ 30 → 5
   share    0-5   trade ≥ 10% of the market's liquidity
-Stored if score ≥ STORE_MIN_SCORE; alerted per ALERT rules below. Sports,
+Stored (shown on the web) if score ≥ STORE_MIN_SCORE; alerted per ALERT rules below. Sports,
 esports and short-term crypto "up or down" markets are skipped entirely:
 big one-sided bets there are normal gambling, not information.
 
@@ -40,7 +40,7 @@ DATA_BASE = "https://data-api.polymarket.com"
 MIN_TRADE_USD = 10_000
 PAGE_SIZE = 500
 MAX_PAGES = 6
-STORE_MIN_SCORE = 45
+STORE_MIN_SCORE = 25  # web list; Telegram has its own, higher bars below
 ALERT_MIN_SCORE_MARKETS = 55
 ALERT_MIN_SCORE_GEO = 75
 MAX_ALERTS_PER_RUN = 5

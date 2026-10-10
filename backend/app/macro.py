@@ -26,8 +26,8 @@ FRED_CSV = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 HISTORY_DAYS = 3 * 365
 
 # series id → (source, divisor to the unit we show). Liquidity series are
-# shown in billions: WALCL and WTREGEN come in millions, RRPONTSYD and
-# WRESBAL already in billions.
+# shown in billions: WALCL, WTREGEN and WRESBAL come in millions (checked
+# 2026-10: WRESBAL 2,993,349 = 2.99T), RRPONTSYD already in billions.
 SERIES = {
     "DGS10": ("fred", 1),
     "DGS2": ("fred", 1),
@@ -38,7 +38,7 @@ SERIES = {
     "WALCL": ("fred", 1000),
     "WTREGEN": ("fred", 1000),
     "RRPONTSYD": ("fred", 1),
-    "WRESBAL": ("fred", 1),
+    "WRESBAL": ("fred", 1000),
     "BAMLH0A0HYM2": ("fred", 1),
     "^MOVE": ("yahoo", 1),
     "^VIX": ("yahoo", 1),
@@ -49,7 +49,7 @@ SERIES = {
 
 def _fred(series_id: str, start: date) -> list[tuple[date, float]]:
     resp = requests.get(FRED_CSV, params={"id": series_id, "cosd": start.isoformat()}, timeout=30,
-                        headers={"User-Agent": "Mozilla/5.0"})
+                        headers={"User-Agent": "congress-trades-tracker/1.0"})  # a browser UA gets tarpitted
     resp.raise_for_status()
     out = []
     for row in csv.reader(io.StringIO(resp.text)):
@@ -236,6 +236,10 @@ def snapshot(db: Session) -> dict:
         elif v >= 100:
             st, rd = "watch", f"MOVE en {v:.0f}: volatilidad de bonos por encima de lo normal."
             ac = "Vigila subastas del Tesoro y datos de inflación; la bolsa es más sensible a sorpresas de tipos."
+        elif (move.change(30) or 0) >= 20:
+            st, rd = "watch", f"MOVE en {v:.0f}, pero sube {move.change(30):.0f} puntos en un mes."
+            ac = ("La volatilidad de los bonos se está despertando: suele adelantarse a la de la bolsa. "
+                  "Vigila el 10 años y los próximos datos de inflación.")
         else:
             st, rd = "ok", f"MOVE en {v:.0f}: bonos tranquilos."
             ac = "Bonos tranquilos suelen acompañar subidas de bolsa y compresión del VIX."
