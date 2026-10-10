@@ -774,7 +774,14 @@ def signal_context(db, ticker: str, signal_date: date, days: int = 90) -> dict:
     )
     # The same member can appear under two spellings from different sources
     # ("Gilbert Cisneros" / "Gilbert Ray Cisneros"): keep one per surname.
-    seen, congress = set(), [t for t in congress if not (t.member_name.split()[-1] in seen or seen.add(t.member_name.split()[-1]))][:5]
+    seen: set[str] = set()
+    unique = []
+    for t in congress:
+        surname = t.member_name.split()[-1]
+        if surname not in seen:
+            seen.add(surname)
+            unique.append(t)
+    congress = unique[:5]
     insiders = [
         t for t in db.query(InsiderTrade)
         .filter(InsiderTrade.ticker == ticker, InsiderTrade.transaction_date >= since,
