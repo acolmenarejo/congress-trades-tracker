@@ -21,7 +21,7 @@ except ImportError:
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import PolymarketAlert  # noqa: E402
 from app import polymarket_macro  # noqa: E402
-from app.polymarket import notify, scan  # noqa: E402
+from app.polymarket import notify, prune, scan  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -31,6 +31,7 @@ if __name__ == "__main__":
     try:
         hours = int(sys.argv[sys.argv.index("--hours") + 1]) if "--hours" in sys.argv else 0
         scan(db, backfill_hours=hours)
+        prune(db)
         if hours:
             # Old bets are not news: record them for the web without alerting.
             db.query(PolymarketAlert).filter(PolymarketAlert.notified.is_(False)).update({"notified": True})

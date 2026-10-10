@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type PolymarketAlert, type PolymarketCategory } from "../lib/api";
 import { SkeletonRows } from "../components/Skeleton";
 import { formatUSD } from "../lib/format";
@@ -6,14 +7,12 @@ import { formatUSD } from "../lib/format";
 const CATEGORIES: { value: PolymarketCategory | ""; label: string }[] = [
   { value: "", label: "Todas" },
   { value: "mercados", label: "Mercados" },
-  { value: "geopolitica", label: "Geopolítica" },
-  { value: "otros", label: "Otros" },
+  { value: "geopolitica", label: "Conflictos" },
 ];
 
 const CATEGORY_LABEL: Record<string, string> = {
   mercados: "Mercados",
-  geopolitica: "Geopolítica",
-  otros: "Otros",
+  geopolitica: "Conflictos",
 };
 
 function timeAgo(iso: string | null): string {
@@ -111,12 +110,12 @@ export default function PolymarketWatch() {
       <div>
         <h2 className="font-serif text-2xl font-semibold">Polymarket: apuestas sospechosas</h2>
         <p className="mt-1 max-w-2xl text-sm text-ink/60 dark:text-slate-400">
-          Apuestas de 10.000 $ o más que encajan con alguien que sabe algo: mucho dinero a un resultado que el
-          mercado ve poco probable, en un mercado que se resuelve pronto y desde una cartera casi nueva. La nota
-          (0-100) suma tamaño, lo improbable de la apuesta, la cercanía de la fecha, lo nueva que es la cartera y
-          el peso sobre la liquidez. Se ignoran deportes y las apuestas de cripto a corto plazo. Por Telegram
-          solo avisan las de mercados (nota ≥ 55) y geopolítica (nota ≥ 75). Las carteras son anónimas: no
-          sabemos quién está detrás.
+          Apuestas de 10.000 $ o más que encajan con alguien que sabe algo, y solo sobre lo que puede mover tu
+          cartera: la Fed, inflación, recesión, aranceles, petróleo, empresas concretas o conflictos armados.
+          Elecciones de otros países, premios, deportes o reuniones entre líderes no aparecen. Tampoco las
+          apuestas a lo que el mercado ya da por hecho (más de 60¢). La nota (0-100) suma tamaño, lo improbable
+          de la apuesta, la cercanía de la fecha y lo nueva que es la cartera. Por Telegram avisan las de
+          mercados con nota ≥ 55 y las de conflictos con nota ≥ 75. Las carteras son anónimas.
         </p>
       </div>
 
@@ -151,7 +150,12 @@ export default function PolymarketWatch() {
 
       {alerts !== null && alerts.length === 0 && (
         <div className="rounded-lg border border-dashed border-ink/20 p-6 text-sm text-ink/60 dark:border-slate-100/20 dark:text-slate-400">
-          Ninguna apuesta sospechosa en este periodo.
+          Ninguna apuesta sospechosa sobre mercados o conflictos en este periodo. Lo que descuenta Polymarket
+          para la Fed, la inflación y la recesión está en la página{" "}
+          <Link to="/macro" className="underline">
+            Macro
+          </Link>
+          .
         </div>
       )}
 
