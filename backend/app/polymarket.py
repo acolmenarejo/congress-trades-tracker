@@ -45,7 +45,7 @@ DATA_BASE = "https://data-api.polymarket.com"
 MIN_TRADE_USD = 10_000  # per wallet+market position, summed across buys
 MIN_CHUNK_USD = 2_000  # smallest single buy we fetch, to catch bets split into pieces
 PAGE_SIZE = 500
-MAX_PAGES = 6
+MAX_PAGES = 10  # ~200 buys ≥ $2k an hour; 10 pages cover a run that lags ~20 h
 STORE_MIN_SCORE = 25  # web list; Telegram has its own, higher bars below
 ALERT_MIN_SCORE_MARKETS = 55
 ALERT_MIN_SCORE_GEO = 75
@@ -147,7 +147,7 @@ def score_trade(usd: float, price: float, hours_to_end: float | None, wallet_mar
         for limit, p in ((3, 20), (10, 12), (30, 5)):
             if wallet_markets <= limit:
                 pts += p
-                reasons.append(f"cartera casi nueva ({wallet_markets} mercados en total)")
+                reasons.append(f"cartera casi nueva ({wallet_markets} mercado{'s' if wallet_markets != 1 else ''} en total)")
                 break
     if liquidity and usd / liquidity >= 0.10:
         pts += 5

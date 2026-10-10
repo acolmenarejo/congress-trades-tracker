@@ -177,7 +177,10 @@ y revisión general de mejoras de frontend.
   2026-10-10): busca **apuestas sospechosas**, no "quién va ganando". Nota
   0-100: tamaño (≥ 10k $), apuesta improbable (precio bajo), se resuelve
   pronto, cartera casi nueva (`/traded` de data-api) y peso sobre la
-  liquidez. Ignora deportes y cripto a corto plazo (regex `SKIP`). Telegram
+  liquidez. Se juzga por **posición**, no por operación: agrupa compras
+  (desde 2.000 $) por cartera + mercado + resultado y suma la posición entera
+  de `/positions`, así una apuesta troceada o acumulada en días cuenta como
+  una. Ignora deportes y cripto a corto plazo (regex `SKIP`). Telegram
   solo para mercados/economía con nota ≥ 55 y geopolítica ≥ 75; el resto,
   solo web. Las filas antiguas ("ballenas") tienen `score` NULL y no se
   muestran ni se avisan. No tiene relación con empresas: no usarlo para
@@ -200,7 +203,9 @@ y revisión general de mejoras de frontend.
   patrón de título, no por slug: abren uno nuevo por reunión/mes). Se guardan
   como series `PM_*` en `macro_points`; `macro.polymarket_view` las cruza con
   el bono a 2 años y el high yield y avisa si no cuadran (página Macro y
-  resumen diario). Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
+  resumen diario). También trae las mismas preguntas de **Kalshi** (API
+  pública sin clave: series KXFEDDECISION, KXFEDHIKE, KXRECSSNBER, KXCPIYOY;
+  series `KS_*`) y avisa si difieren ≥ 15 puntos de Polymarket. Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
   dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
   peticiones con User-Agent de navegador: no usar uno.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
