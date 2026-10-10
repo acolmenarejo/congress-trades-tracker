@@ -158,7 +158,7 @@ export interface MacroIndicator {
 }
 
 export interface MacroPolymarket {
-  odds: { key: string; title: string; url: string | null; text: string; change: number | null; change_label: string | null }[];
+  odds: { key: string; title: string; url: string | null; text: string; kalshi?: string; change: number | null; change_label: string | null }[];
   checks: { status: "ok" | "watch"; text: string; short?: string }[];
   bets: { id: number; question: string; outcome: string | null; price: number | null; size_usd: number; score: number; slug: string | null }[];
   updated: string | null;

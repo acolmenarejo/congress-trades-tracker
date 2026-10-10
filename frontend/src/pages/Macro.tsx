@@ -71,9 +71,9 @@ function PolymarketCheck({ pm }: { pm: MacroPolymarket }) {
   if (pm.odds.length === 0) return null;
   return (
     <div className="rounded-lg border border-ink/10 p-4 dark:border-slate-100/10">
-      <h3 className="font-serif text-lg font-semibold">Lo que apuesta Polymarket</h3>
+      <h3 className="font-serif text-lg font-semibold">Lo que apuestan Polymarket y Kalshi</h3>
       <p className="mb-3 text-xs text-ink/50 dark:text-slate-400">
-        Probabilidades implícitas en dinero real, comparadas con lo que dicen los bonos y el crédito.
+        Probabilidades implícitas en dinero real, comparadas entre sí y con lo que dicen los bonos y el crédito.
       </p>
       <div className="space-y-2">
         {pm.checks.map((c, n) => (
@@ -100,7 +100,14 @@ function PolymarketCheck({ pm }: { pm: MacroPolymarket }) {
                 o.title
               )}
             </p>
-            <p className="font-mono text-xs">{o.text}</p>
+            <p className="font-mono text-xs">
+              <span className="text-ink/50 dark:text-slate-400">Polymarket:</span> {o.text}
+            </p>
+            {o.kalshi && (
+              <p className="font-mono text-xs">
+                <span className="text-ink/50 dark:text-slate-400">Kalshi:</span> {o.kalshi}
+              </p>
+            )}
             {o.change !== null && (
               <p className="font-mono text-[11px] text-ink/50 dark:text-slate-400">
                 {o.change > 0 ? "+" : ""}

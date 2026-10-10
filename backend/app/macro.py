@@ -348,6 +348,9 @@ def snapshot(db: Session) -> dict:
             "polymarket": pm}
 
 
+DIVERGENCE = 0.15  # Polymarket vs. Kalshi gap (probability points) worth flagging
+
+
 def _pct(x: float) -> str:
     return f"{x * 100:.0f}%"
 
@@ -430,6 +433,40 @@ def polymarket_view(db: Session, s: dict[str, _S]) -> dict:
         odds.append({"key": "cpi", "title": meta["cpi"]["title"], "url": link("cpi"),
                      "text": " · ".join(f"{x['label']} {_pct(x['p'])}" for x in b[:3]),
                      "change": None, "change_label": None})
+
+    # Same questions on Kalshi: shown next to each Polymarket line, and a
+    # gap of DIVERGENCE or more is flagged (one of the two is mispriced).
+    ks = meta.get("kalshi") or {}
+    by_key = {o["key"]: o for o in odds}
+    pairs = [
+        ("fed_next", "subida en la próxima reunión", "PM_FED_HIKE", "KS_FED_HIKE",
+         lambda: f"Bajada {_pct(s['KS_FED_CUT'].last)} · sin cambios {_pct(s['KS_FED_HOLD'].last)} · subida {_pct(s['KS_FED_HIKE'].last)}"),
+        ("fed_hike_year", "otra subida este año", "PM_FED_HIKE_YEAR", "KS_FED_HIKE_YEAR",
+         lambda: f"Sí {_pct(s['KS_FED_HIKE_YEAR'].last)}"),
+        ("recession", "recesión este año", "PM_RECESSION", "KS_RECESSION",
+         lambda: f"Sí {_pct(s['KS_RECESSION'].last)} (definición NBER)"),
+    ]
+    for key, what, pm_id, ks_id, text in pairs:
+        if key in by_key and s[ks_id].ok and key in ks:
+            by_key[key]["kalshi"] = text()
+            gap = abs(s[pm_id].last - s[ks_id].last)
+            if gap >= DIVERGENCE:
+                checks.append({"status": "watch", "short": f"Polymarket y Kalshi difieren en {what}", "text": (
+                    f"Polymarket y Kalshi no coinciden en {what}: {_pct(s[pm_id].last)} frente a "
+                    f"{_pct(s[ks_id].last)}. Con dinero real en ambos, una diferencia así suele cerrarse: "
+                    "conviene mirar qué sabe cada lado (y si las reglas de resolución son distintas).")})
+    if "cpi" in by_key and ks.get("cpi", {}).get("buckets"):
+        kb = ks["cpi"]["buckets"]
+        by_key["cpi"]["kalshi"] = " · ".join(f"{x['label']} {_pct(x['p'])}" for x in kb[:3])
+        pm_top = meta["cpi"]["buckets"][0]["label"].lstrip("≥≤<> ")
+        if kb[0]["label"] != pm_top:
+            checks.append({"status": "watch", "short": "Polymarket y Kalshi esperan IPC distinto", "text": (
+                f"IPC: lo más probable en Polymarket es {pm_top} y en Kalshi {kb[0]['label']}. "
+                "Si el dato sale fuera de lo esperado, mueve bonos y expectativas de tipos.")})
+    diverge = any(c.get("short", "").startswith("Polymarket y Kalshi") for c in checks)
+    if any("kalshi" in o for o in odds) and not diverge:
+        checks.append({"status": "ok", "text": (
+            f"Polymarket y Kalshi coinciden (diferencias de menos de {DIVERGENCE * 100:.0f} puntos).")})
 
     since = datetime.utcnow() - timedelta(days=7)
     bets = (

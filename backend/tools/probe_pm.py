@@ -1,17 +1,24 @@
-import json, requests
-K = "https://api.elections.kalshi.com/trade-api/v2"
-def get(p, q=None):
-    r = requests.get(K + p, params=q or {}, timeout=30); print("GET", r.url, r.status_code); return r.json() if r.ok else {}
-s = get("/series", {"category": "Economics"})
-for x in (s.get("series") or [])[:400]:
-    t = x.get("ticker", ""); title = x.get("title", "")
-    if any(w in (t + title).lower() for w in ("fed", "recess", "cpi", "inflation", "rate", "gdp")):
-        print("S", t, "|", title, "|", x.get("frequency"))
-for st in ["KXFEDDECISION", "KXFED", "KXRECSSNBER", "KXCPIYOY", "KXFEDHIKE"]:
-    ev = get("/events", {"series_ticker": st, "status": "open", "with_nested_markets": "true", "limit": 3})
-    for e in (ev.get("events") or [])[:2]:
-        print("E", st, e.get("event_ticker"), "|", e.get("title"), "|", e.get("sub_title"))
-        for m in (e.get("markets") or [])[:12]:
-            print("   M", m.get("ticker"), "|", m.get("yes_sub_title") or m.get("subtitle"), "| bid", m.get("yes_bid"), "ask", m.get("yes_ask"), "last", m.get("last_price"), "| bid$", m.get("yes_bid_dollars"), "| vol", m.get("volume"), "| close", m.get("close_time"))
-tr = get("/markets/trades", {"limit": 5})
-print(json.dumps((tr.get("trades") or [])[:2], indent=1))
+import json, os, shutil, sys, time
+sys.path.insert(0, "backend")
+shutil.copy("backend/data/congress_trades.db", "/tmp/t.db")
+os.environ["DATABASE_URL"] = "sqlite:////tmp/t.db"
+from app.database import init_db, SessionLocal
+from app import macro, polymarket as pm, polymarket_macro
+from app.models import PolymarketAlert, TelegramState
+init_db(); db = SessionLocal()
+t = pm._recent_big_trades(int(time.time()) - 3600)
+print("trades >=2k last hour", len(t))
+if t:
+    x = t[0]; print("position sample", json.dumps(pm._position(x["proxyWallet"], x["conditionId"], x.get("outcomeIndex")))[:800])
+db.merge(TelegramState(key=pm.STATE_KEY, value=str(int(time.time()) - 24 * 3600))); db.commit()
+pm.MAX_PAGES = 20
+t0 = time.time(); print(pm.scan(db), round(time.time() - t0), "s")
+rows = db.query(PolymarketAlert).filter(PolymarketAlert.score.isnot(None)).order_by(PolymarketAlert.score.desc()).all()
+for r in rows[:25]:
+    print(f"{r.score:5.1f} {r.tag:11} ${r.size_usd:>10,.0f} @{r.price:.2f} h={r.hours_to_end and round(r.hours_to_end)} w={r.wallet_markets} alert={pm.should_alert(r)} | {r.market_question[:70]} -> {r.outcome} | {r.reasons}")
+macro.refresh(db)
+print(polymarket_macro.fetch(db))
+print(json.dumps(polymarket_macro.load_meta(db).get("kalshi"), ensure_ascii=False))
+v = macro.snapshot(db)["polymarket"]; v.pop("bets")
+print(json.dumps(v, ensure_ascii=False, indent=1))
+print("\n".join(macro.digest_lines(db)))

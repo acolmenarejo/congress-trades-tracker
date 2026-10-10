@@ -1,9 +1,10 @@
-"""What Polymarket bettors expect on macro questions (next Fed decision, a
+"""What prediction markets expect on macro questions (next Fed decision, a
 Fed hike this year, US recession, next CPI print), to cross-check against
-what the bond market says on the Macro page (app/macro.py).
+what the bond market says on the Macro page (app/macro.py), and Polymarket
+against Kalshi (the regulated US exchange, public market data, no key).
 
 Fetched hourly from polymarket.yml (gamma-api, no key). Probabilities go
-into MacroPoint as series PM_* (one value per day, the latest of the day),
+into MacroPoint as series PM_* / KS_* (one value per day, the latest of the day),
 and the market titles/links into TelegramState[META_KEY] as JSON. Events are
 found by title pattern rather than fixed slugs, since Polymarket opens a
 new event per meeting/month.
@@ -120,12 +121,99 @@ def fetch(db: Session) -> dict:
         if buckets:
             meta["cpi"] = {"title": e["title"], "slug": e["slug"], "buckets": buckets[:4]}
 
+    values.update(kalshi(meta))
+
     today = date.today()
     for sid, v in values.items():
         db.merge(MacroPoint(series=sid, date=today, value=v))
     db.merge(TelegramState(key=META_KEY, value=json.dumps(meta)))
     db.commit()
     logger.info("polymarket_macro: %s", values)
+    return values
+
+
+KALSHI = "https://api.elections.kalshi.com/trade-api/v2"
+
+
+def _ks_prob(m: dict) -> float | None:
+    """Mid of bid/ask when both exist, else last trade, else bid."""
+    def f(k):
+        try:
+            v = m.get(k)
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+    bid, ask, last = f("yes_bid_dollars"), f("yes_ask_dollars"), f("last_price_dollars")
+    if bid is not None and ask is not None and ask > 0:
+        return (bid + ask) / 2
+    return last if last is not None else bid
+
+
+def _ks_events(series: str) -> list[dict]:
+    r = _get(f"{KALSHI}/events", {"series_ticker": series, "status": "open", "with_nested_markets": "true", "limit": 20})
+    evs = r.get("events") or []
+    return sorted(evs, key=lambda e: min((m.get("close_time") or "9") for m in e.get("markets") or [{}]))
+
+
+def kalshi(meta: dict) -> dict[str, float]:
+    values: dict[str, float] = {}
+    ks: dict = {}
+    year = date.today().year
+    try:
+        evs = _ks_events("KXFEDDECISION")
+        if evs:
+            e, split = evs[0], {"cut": 0.0, "hold": 0.0, "hike": 0.0}
+            for m in e.get("markets") or []:
+                p, lab = _ks_prob(m), (m.get("yes_sub_title") or "").lower()
+                if p is None:
+                    continue
+                key = "cut" if "cut" in lab else "hike" if "hike" in lab else "hold" if "maintain" in lab else None
+                if key:
+                    split[key] += p
+            total = sum(split.values())
+            if total:
+                values.update({f"KS_FED_{k.upper()}": v / total for k, v in split.items()})
+                ks["fed_next"] = {"title": e.get("title"), "ticker": e.get("event_ticker")}
+    except Exception:
+        logger.exception("kalshi: fed decision failed")
+    try:
+        for e in _ks_events("KXFEDHIKE"):
+            for m in e.get("markets") or []:
+                if (m.get("yes_sub_title") or "").strip() == f"Before {year + 1}" and _ks_prob(m) is not None:
+                    values["KS_FED_HIKE_YEAR"] = _ks_prob(m)
+                    ks["fed_hike_year"] = {"title": f"{e.get('title')} ({m.get('yes_sub_title')})", "ticker": e.get("event_ticker")}
+    except Exception:
+        logger.exception("kalshi: fed hike failed")
+    try:
+        for e in _ks_events("KXRECSSNBER"):
+            if str(year)[-2:] == (e.get("event_ticker") or "")[-2:] and e.get("markets"):
+                p = _ks_prob(e["markets"][0])
+                if p is not None:
+                    values["KS_RECESSION"] = p
+                    ks["recession"] = {"title": e.get("title"), "ticker": e.get("event_ticker")}
+    except Exception:
+        logger.exception("kalshi: recession failed")
+    try:
+        evs = _ks_events("KXCPIYOY")
+        if evs:
+            e = evs[0]
+            above = []
+            for m in e.get("markets") or []:
+                mt = re.search(r"([\d.]+)%", m.get("yes_sub_title") or "")
+                if mt and _ks_prob(m) is not None:
+                    above.append((float(mt.group(1)), _ks_prob(m)))
+            above.sort()
+            # "Above x" thresholds → probability the print lands on each 0.1 step
+            buckets = [{"label": f"{hi:.1f}%", "p": max(0.0, above[i - 1][1] - p)}
+                       for i, (hi, p) in enumerate(above) if i > 0]
+            total = sum(b["p"] for b in buckets)
+            if total:
+                ks["cpi"] = {"title": e.get("title"), "ticker": e.get("event_ticker"),
+                             "buckets": sorted(({"label": b["label"], "p": b["p"] / total} for b in buckets),
+                                               key=lambda b: -b["p"])[:4]}
+    except Exception:
+        logger.exception("kalshi: cpi failed")
+    meta["kalshi"] = ks
     return values
 
 

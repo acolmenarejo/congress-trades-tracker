@@ -8,10 +8,15 @@ both worth a look, and worth a Telegram alert when the market is about
 finance/economy (Fed, tariffs, oil, companies...) or, at a higher bar,
 geopolitics that moves markets.
 
+Bets are judged per position, not per trade: this run's buys (from $2k)
+are grouped by wallet + market + outcome and topped up with the wallet's
+whole position from data-api /positions, so a bet split into pieces or
+built up over days still counts as one big bet.
+
 Suspicion score, 0-100 (see `score_trade`):
   size     0-30  $10k → 0 ... $1M+ → 30 (log scale)
   odds     0-25  price paid 50% → 0 ... ≤ 5% → 25 (long shot)
-  horizon  0-20  resolves in ≤ 1 day → 20, ≤ 3 d → 15, ≤ 7 d → 10, ≤ 14 d → 5
+  horizon  0-20  resolves in ≤ 1 day → 20, ≤ 3 d → 15, ≤ 7 d → 10, ≤ 14 d → 6, ≤ 60 d → 3
   wallet   0-20  ≤ 3 markets ever traded → 20, ≤ 10 → 12, ≤ 30 → 5
   share    0-5   trade ≥ 10% of the market's liquidity
 Stored (shown on the web) if score ≥ STORE_MIN_SCORE; alerted per ALERT rules below. Sports,
@@ -37,7 +42,8 @@ logger = logging.getLogger("polymarket")
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 DATA_BASE = "https://data-api.polymarket.com"
 
-MIN_TRADE_USD = 10_000
+MIN_TRADE_USD = 10_000  # per wallet+market position, summed across buys
+MIN_CHUNK_USD = 2_000  # smallest single buy we fetch, to catch bets split into pieces
 PAGE_SIZE = 500
 MAX_PAGES = 6
 STORE_MIN_SCORE = 25  # web list; Telegram has its own, higher bars below
@@ -132,7 +138,7 @@ def score_trade(usd: float, price: float, hours_to_end: float | None, wallet_mar
     if price <= 0.2:
         reasons.append(f"apuesta a algo poco probable ({price * 100:.0f}% según el mercado)")
     if hours_to_end is not None and hours_to_end >= 0:
-        for limit, p in ((24, 20), (72, 15), (168, 10), (336, 5)):
+        for limit, p in ((24, 20), (72, 15), (168, 10), (336, 6), (1440, 3)):
             if hours_to_end <= limit:
                 pts += p
                 reasons.append("se resuelve en " + (f"{hours_to_end:.0f} h" if hours_to_end < 48 else f"{hours_to_end / 24:.0f} días"))
@@ -154,7 +160,7 @@ def _recent_big_trades(since_ts: int) -> list[dict]:
     for page in range(MAX_PAGES):
         try:
             rows = _get(f"{DATA_BASE}/trades", {
-                "filterType": "CASH", "filterAmount": MIN_TRADE_USD, "takerOnly": "true",
+                "filterType": "CASH", "filterAmount": MIN_CHUNK_USD, "takerOnly": "true",
                 "side": "BUY", "limit": PAGE_SIZE, "offset": page * PAGE_SIZE,
             })
         except Exception:
@@ -188,6 +194,18 @@ def _wallet_markets(wallet: str, cache: dict) -> int | None:
     return cache[wallet]
 
 
+def _position(wallet: str, condition_id: str, outcome_index) -> dict | None:
+    """The wallet's whole position on one outcome (all its buys, any day)."""
+    try:
+        rows = _get(f"{DATA_BASE}/positions", {"user": wallet, "market": condition_id, "sizeThreshold": 0})
+    except Exception:
+        return None
+    for r in rows or []:
+        if r.get("conditionId") == condition_id and str(r.get("outcomeIndex")) == str(outcome_index):
+            return r
+    return None
+
+
 def _hours_to_end(m: dict, now: datetime) -> float | None:
     end = m.get("endDate")
     if not end:
@@ -210,51 +228,75 @@ def scan(db: Session) -> dict:
     texts = {t["conditionId"]: f"{t.get('title', '')} {t.get('slug', '')} {t.get('eventSlug', '')}" for t in trades}
     keep = {cid for cid, txt in texts.items() if classify(txt)}
     markets = _markets(sorted(keep))
-    wallets: dict = {}
+
+    # Group this run's buys by wallet + market + outcome: a bet split into
+    # several pieces (or built up over days) counts as one position.
+    groups: dict[tuple, list[dict]] = {}
     for t in trades:
-        cid = t.get("conditionId")
-        if cid not in keep:
-            continue
-        tx = t.get("transactionHash")
-        if not tx or db.query(PolymarketAlert).filter_by(tx_hash=tx).one_or_none():
+        if t.get("conditionId") not in keep or not t.get("proxyWallet"):
             continue
         try:
-            price = float(t["price"])
-            usd = float(t["size"]) * price
+            t["_price"] = float(t["price"])
+            t["_usd"] = float(t["size"]) * t["_price"]
         except (KeyError, TypeError, ValueError):
             continue
-        if usd < MIN_TRADE_USD or not 0 < price < 1:
+        if 0 < t["_price"] < 1:
+            groups.setdefault((t["proxyWallet"], t["conditionId"], t.get("outcomeIndex")), []).append(t)
+
+    wallets: dict = {}
+    for (wallet, cid, oidx), buys in groups.items():
+        run_usd = sum(b["_usd"] for b in buys)
+        run_price = sum(b["_usd"] * b["_price"] for b in buys) / run_usd
+        # Small pieces only matter on long shots; skip the per-wallet API calls otherwise.
+        if run_usd < MIN_TRADE_USD and run_price > 0.3:
             continue
         m = markets.get(cid, {})
         liquidity = float(m.get("liquidity") or 0) or None
         hours = _hours_to_end(m, now)
         if hours is not None and hours < 0:
             continue  # already past its end date: just settling, not a bet on news
-        # Cheap pre-check before the per-wallet API call: without a fresh
-        # wallet (max 20 pts) this trade can't reach the store threshold.
+        pos = _position(wallet, cid, oidx)
+        usd, price, n_buys = run_usd, run_price, len(buys)
+        if pos:
+            try:
+                total = float(pos.get("initialValue") or 0)
+                if total > usd:
+                    usd, price = total, float(pos.get("avgPrice") or price)
+            except (TypeError, ValueError):
+                pass
+        if usd < MIN_TRADE_USD:
+            continue
+        # Cheap pre-check before the wallet-history API call: without a fresh
+        # wallet (max 20 pts) this position can't reach the store threshold.
         base, _ = score_trade(usd, price, hours, None, liquidity)
         if base + 20 < STORE_MIN_SCORE:
             continue
-        nmk = _wallet_markets(t.get("proxyWallet") or "", wallets)
+        nmk = _wallet_markets(wallet, wallets)
         score, reasons = score_trade(usd, price, hours, nmk, liquidity)
+        if n_buys > 1 or usd > run_usd * 1.2:
+            reasons.append("posición acumulada en varias compras" + (f" ({n_buys} en la última hora)" if n_buys > 1 else ""))
         if score < STORE_MIN_SCORE:
             continue
-        text = f"{t.get('title', '')} {m.get('question', '')} {m.get('description', '')[:300]}"
-        ts = t.get("timestamp")
-        db.add(PolymarketAlert(
-            tx_hash=tx,
-            event_title=t.get("title") or "",
-            market_question=m.get("question") or t.get("title") or "",
-            outcome=t.get("outcome"),
+        last = max(buys, key=lambda b: b.get("timestamp") or 0)
+        key = f"pos:{wallet}:{cid}:{oidx}"
+        row = db.query(PolymarketAlert).filter_by(tx_hash=key).one_or_none()
+        if row and usd < row.size_usd * 1.5:
+            continue  # already recorded; only a much bigger position is news again
+        text = f"{last.get('title', '')} {m.get('question', '')} {m.get('description', '')[:300]}"
+        ts = last.get("timestamp")
+        fields = dict(
+            event_title=last.get("title") or "",
+            market_question=m.get("question") or last.get("title") or "",
+            outcome=last.get("outcome"),
             side="BUY",
             price=price,
             size_usd=usd,
             liquidity_usd=liquidity,
             pct_of_liquidity=usd / liquidity if liquidity else None,
-            wallet=t.get("proxyWallet"),
+            wallet=wallet,
             tag=classify(text) or "otros",
-            event_slug=t.get("eventSlug"),
-            market_slug=t.get("slug"),
+            event_slug=last.get("eventSlug"),
+            market_slug=last.get("slug"),
             trade_timestamp=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
             score=score,
             reasons=" | ".join(reasons),
@@ -262,7 +304,13 @@ def scan(db: Session) -> dict:
             wallet_markets=nmk,
             implication=implication(text),
             notified=False,
-        ))
+        )
+        if row:
+            for k, v in fields.items():
+                setattr(row, k, v)
+            row.detected_at = datetime.utcnow()
+        else:
+            db.add(PolymarketAlert(tx_hash=key, **fields))
         stats["stored"] += 1
 
     db.merge(TelegramState(key=STATE_KEY, value=str(max(t.get("timestamp") or 0 for t in trades))))
