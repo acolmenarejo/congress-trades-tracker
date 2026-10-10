@@ -537,3 +537,56 @@ def digest_lines(db: Session) -> list[str]:
         if c["status"] != "ok":
             lines.append(f"  • 🎲 No cuadran: {c['short']}")
     return lines
+
+
+# ---------------------------------------------------------------- change alerts
+
+STATUS_KEY = "macro_status"
+_STATUS_ES = {"ok": "normal", "watch": "vigilar", "stress": "tensión"}
+_RANK = {"ok": 0, "watch": 1, "stress": 2}
+
+
+def notify_changes(db: Session) -> int:
+    """Telegram to every subscriber when an indicator changes state (normal /
+    vigilar / tensión) or the overall regime does, so a turn in rates,
+    credit or Fed liquidity arrives the day it happens instead of waiting
+    to be noticed on the page. The first run only records the states."""
+    import html
+    import json
+
+    from .config import TELEGRAM_BOT_TOKEN
+    from .models import TelegramState, TelegramSubscriber
+    from .telegram_api import send_message
+
+    snap = snapshot(db)
+    if len(snap["indicators"]) < 6:
+        return 0  # a failed download is not a change in the economy
+    now = {i["key"]: i["status"] for i in snap["indicators"]}
+    now["_regime"] = snap["regime"]
+    st = db.get(TelegramState, STATUS_KEY)
+    try:
+        before = json.loads(st.value) if st and st.value else None
+    except ValueError:
+        before = None
+    db.merge(TelegramState(key=STATUS_KEY, value=json.dumps(now)))
+    db.commit()
+    if before is None:
+        return 0
+
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    changed = [i for i in snap["indicators"] if before.get(i["key"]) not in (None, i["status"])]
+    regime_changed = before.get("_regime") not in (None, snap["regime"])
+    if not changed and not regime_changed:
+        return 0
+    worse = any(_RANK[i["status"]] > _RANK[before[i["key"]]] for i in changed)
+    lines = [f"{'🚨' if worse else '✅'} <b>Macro: cambio de señal</b>"]
+    if regime_changed:
+        lines.append(f"Entorno: {before['_regime']} → <b>{snap['regime']}</b>. {e(snap['summary'])}")
+    for i in changed:
+        icon = "⚠️" if _RANK[i["status"]] > _RANK[before[i["key"]]] else "↘️"
+        lines += ["", f"{icon} <b>{e(i['name'])}</b>: {_STATUS_ES[before[i['key']]]} → {_STATUS_ES[i['status']]}",
+                  e(i["reading"]), f"➜ {e(i['action'])}"]
+    lines += ["", "Detalle: congress-trades-tracker.netlify.app/macro"]
+    text = "\n".join(lines)
+    chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
+    return sum(send_message(c, text) for c in chats)

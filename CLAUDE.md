@@ -180,9 +180,15 @@ y revisión general de mejoras de frontend.
   liquidez. Se juzga por **posición**, no por operación: agrupa compras
   (desde 2.000 $) por cartera + mercado + resultado y suma la posición entera
   de `/positions`, así una apuesta troceada o acumulada en días cuenta como
-  una. Ignora deportes y cripto a corto plazo (regex `SKIP`). Telegram
-  solo para mercados/economía con nota ≥ 55 y geopolítica ≥ 75; el resto,
-  solo web. Las filas antiguas ("ballenas") tienen `score` NULL y no se
+  una. Ignora deportes y cripto a corto plazo (regex `SKIP`). Desde
+  2026-10-10 solo guarda lo que puede mover una cartera: `mercados` (Fed,
+  IPC, aranceles, petróleo, empresas...) y `geopolitica` solo si es
+  conflicto (`GEO`: guerra, ataques, bloqueos, Taiwán; un nombre de líder no
+  basta). Fuera "otros" (elecciones extranjeras, Nobel, reuniones),
+  apuestas a > 60¢ (`MAX_PRICE`) y el % de liquidez en mercados de < 5k $;
+  `prune()` limpia filas antiguas que ya no cumplen. El usuario lo pidió así:
+  "no me ayuda ni a mis inversiones ni a anticipar una crisis". Telegram
+  solo para mercados con nota ≥ 55 y conflictos ≥ 75. Las filas antiguas ("ballenas") tienen `score` NULL y no se
   muestran ni se avisan. No tiene relación con empresas: no usarlo para
   filtrar directivos.
 
@@ -198,7 +204,10 @@ y revisión general de mejoras de frontend.
   usa `fredgraph.csv`, pero ese host bloquea muchos runners de GitHub
   (reset HTTP/2 o lectura colgada; el 2026-10-10 fallaron las 11 series). `/macro` y la página
   Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
-  mercado (no ajustadas).
+  mercado (no ajustadas). `notify_changes` avisa por Telegram a todos cuando
+  un indicador cambia de estado (normal/vigilar/tensión) o cambia el entorno;
+  el estado anterior va en `telegram_state` "macro_status". Los canjes
+  (`exchange` del STOCK Act: fusiones, escisiones) no se alertan.
 - `app/polymarket_macro.py` (cada hora, dentro de `polymarket.yml`): saca de
   Polymarket la probabilidad de la próxima decisión de la Fed, de otra subida
   este año, de recesión y el reparto del próximo IPC (busca los eventos por

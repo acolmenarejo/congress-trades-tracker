@@ -32,6 +32,7 @@ jobs:
         working-directory: backend/macro
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: python fetch_macro.py
 
       - name: Commit updated database
@@ -49,7 +50,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB "macro_points:series NOT LIKE 'PM_%' AND series NOT LIKE 'KS_%'"
+            python backend/tools/merge_tables.py /tmp/ours.db $DB "macro_points:series NOT LIKE 'PM_%' AND series NOT LIKE 'KS_%'" "telegram_state:key = 'macro_status'"
             sleep $((attempt * 5))
           done
           exit 1

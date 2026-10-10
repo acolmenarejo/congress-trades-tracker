@@ -379,6 +379,10 @@ def send_alerts() -> dict:
             for w in db.query(TelegramWatch).filter_by(watch_type="ticker", value=trade.ticker).all():
                 reasons_by_chat.setdefault(w.chat_id, set()).add("ticker")
 
+            # An exchange ("canje") swaps one holding for another in a merger,
+            # spin-off or fund conversion: no decision to buy or sell, no signal.
+            if trade.transaction_type == "exchange":
+                reasons_by_chat = {}
             if reasons_by_chat:  # only pay for the price/ranking lookups if someone's watching
                 body = _format_alert(db, trade)
                 for chat_id, reasons in reasons_by_chat.items():

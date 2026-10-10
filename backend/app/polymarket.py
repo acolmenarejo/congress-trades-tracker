@@ -44,6 +44,12 @@ DATA_BASE = "https://data-api.polymarket.com"
 
 MIN_TRADE_USD = 10_000  # per wallet+market position, summed across buys
 MIN_CHUNK_USD = 2_000  # smallest single buy we fetch, to catch bets split into pieces
+# Above this price the bet is on what the market already expects: it says
+# nothing new (a $17k "No" at 95¢ on a meeting that won't happen).
+MAX_PRICE = 0.6
+# Below this the market is nearly empty and "% of its liquidity" is noise
+# (a $17k bet showed as 100,313% of a market with $17 of liquidity).
+MIN_LIQUIDITY_USD = 5_000
 PAGE_SIZE = 500
 MAX_PAGES = 10  # ~200 buys ≥ $2k an hour; 10 pages cover a run that lags ~20 h
 STORE_MIN_SCORE = 25  # web list; Telegram has its own, higher bars below
@@ -70,10 +76,13 @@ MARKETS = re.compile(
     r"meta|openai|anthropic|boeing|intel|tsmc|sanctions?|ecb|bank of japan|boj|central bank)\b",
     re.I,
 )
+# Geopolitics only counts when it's about conflict that moves markets (oil,
+# defence, chips, Europe). A leader's name alone ("Will Putin meet
+# Lukashenko?") or a foreign election is not that, so it's dropped.
 GEO = re.compile(
-    r"\b(arrest\w*|captured?|ousted?|resign\w*|coup|invade\w*|invasion|strikes?|attack\w*|war|ceasefire|"
-    r"missile|nuclear|regime|maduro|venezuela\w*|iran\w*|blockade|israel\w*|gaza|hezbollah|houthis?|taiwan|china|russia|"
-    r"ukraine|putin|zelensky|xi jinping|kim jong|north korea|cuba|hormuz)\b",
+    r"\b(coup|invade\w*|invasion|military (action|strike|operation)|strikes? on|airstrikes?|attack\w*|war\b|"
+    r"ceasefire|missile|nuclear|regime (change|fall)|blockade|hormuz|troops|annex\w*|martial law|"
+    r"maduro (out|ousted|captured)|taiwan)\b",
     re.I,
 )
 
@@ -108,14 +117,14 @@ def _get(url: str, params: dict):
 
 
 def classify(text: str) -> str | None:
-    """'mercados' | 'geopolitica' | 'otros', or None to skip the market."""
+    """'mercados' | 'geopolitica', or None to skip the market."""
     if SKIP.search(text):
         return None
     if MARKETS.search(text):
         return "mercados"
     if GEO.search(text):
         return "geopolitica"
-    return "otros"
+    return None  # elections abroad, awards, celebrities: nothing for a stock portfolio
 
 
 def implication(text: str) -> str | None:
@@ -147,11 +156,13 @@ def score_trade(usd: float, price: float, hours_to_end: float | None, wallet_mar
         for limit, p in ((3, 20), (10, 12), (30, 5)):
             if wallet_markets <= limit:
                 pts += p
-                reasons.append(f"cartera casi nueva ({wallet_markets} mercado{'s' if wallet_markets != 1 else ''} en total)")
+                label = "cartera casi nueva" if wallet_markets <= 3 else "cartera con poca historia"
+                reasons.append(f"{label} ({wallet_markets} mercado{'s' if wallet_markets != 1 else ''} en total)")
                 break
-    if liquidity and usd / liquidity >= 0.10:
+    if liquidity and liquidity >= MIN_LIQUIDITY_USD and usd / liquidity >= 0.10:
         pts += 5
-        reasons.append(f"{usd / liquidity * 100:.0f}% de la liquidez del mercado")
+        reasons.append("más que toda la liquidez del mercado" if usd >= liquidity
+                       else f"{usd / liquidity * 100:.0f}% de la liquidez del mercado")
     return round(pts, 1), reasons
 
 
@@ -266,7 +277,7 @@ def scan(db: Session, backfill_hours: int = 0) -> dict:
                     usd, price = total, float(pos.get("avgPrice") or price)
             except (TypeError, ValueError):
                 pass
-        if usd < MIN_TRADE_USD:
+        if usd < MIN_TRADE_USD or price > MAX_PRICE:
             continue
         # Cheap pre-check before the wallet-history API call: without a fresh
         # wallet (max 20 pts) this position can't reach the store threshold.
@@ -296,7 +307,7 @@ def scan(db: Session, backfill_hours: int = 0) -> dict:
             liquidity_usd=liquidity,
             pct_of_liquidity=usd / liquidity if liquidity else None,
             wallet=wallet,
-            tag=classify(text) or "otros",
+            tag=classify(text) or classify(last.get("title") or "") or "mercados",
             event_slug=last.get("eventSlug"),
             market_slug=last.get("slug"),
             trade_timestamp=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
@@ -319,6 +330,24 @@ def scan(db: Session, backfill_hours: int = 0) -> dict:
     db.commit()
     logger.info("polymarket: %s", stats)
     return stats
+
+
+def prune(db: Session) -> int:
+    """Drop stored bets the current rules would not keep (rules tightened
+    2026-10-10: no foreign elections or leader meetings, no bets on what the
+    market already expects)."""
+    gone = 0
+    for r in db.query(PolymarketAlert).filter(PolymarketAlert.score.isnot(None)).all():
+        tag = classify(f"{r.event_title or ''} {r.market_question or ''} {r.event_slug or ''}")
+        if tag is None or (r.price or 0) > MAX_PRICE:
+            db.delete(r)
+            gone += 1
+            continue
+        r.tag = tag
+        if r.reasons and (r.liquidity_usd or 0) < MIN_LIQUIDITY_USD:
+            r.reasons = " | ".join(x for x in r.reasons.split(" | ") if "liquidez" not in x)
+    db.commit()
+    return gone
 
 
 def should_alert(a: PolymarketAlert) -> bool:
