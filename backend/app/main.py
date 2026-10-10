@@ -293,6 +293,7 @@ def get_setup_signals(db: Session = Depends(get_db)):
             "stop": sig.stop,
             "target": sig.target,
             "reasons": sig.reasons.split(" | ") if sig.reasons else [],
+            "context": setups.signal_context(db, sig.ticker, sig.signal_date),
             **res,
         })
     return out

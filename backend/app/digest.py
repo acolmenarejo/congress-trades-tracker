@@ -69,19 +69,34 @@ def insider_lines(db: Session, since: datetime) -> list[str]:
     return lines
 
 
+def _who(ctx: dict) -> str:
+    people = [f"{e(c['name'])} (congresista, {c['date']:%d/%m}, {_usd(c['amount'])})" for c in ctx["congress"][:2]]
+    people += [f"{e(i['name'])} ({e(i['role'] or 'directivo')}, {i['date']:%d/%m}, {_usd(i['amount'])})"
+               for i in ctx["insiders"][:2]]
+    return "; ".join(people)
+
+
 def signal_lines(db: Session) -> list[str]:
+    """Open technical signals with when, why, the plan and who was buying."""
     from . import prices, setups
 
     open_ = db.query(SetupSignal).filter(SetupSignal.outcome.is_(None)).order_by(SetupSignal.signal_date).all()
     if not open_:
         return []
-    lines = ["📈 <b>Señales abiertas</b>"]
+    lines = ["📈 <b>Señales técnicas en curso</b> <i>(avisos del bot que aún no han tocado objetivo ni stop)</i>"]
     for s in open_:
         bars = prices.get_price_series(db, s.ticker, s.signal_date - timedelta(days=5), date.today())
         res = setups.evaluate_signal(bars, s)
         ret = f"{res['return_pct']:+.1f}%" if res["return_pct"] is not None else "?"
-        kind = "ruptura" if s.direction == "breakout" else "señal"
-        lines.append(f"  • <b>{e(s.ticker)}</b> ({kind} del {s.signal_date:%d/%m}): {ret}")
+        kind = "ruptura" if s.direction == "breakout" else f"nota {s.score:.0f}/100"
+        days = (date.today() - s.signal_date).days
+        lines.append(f"  • <b>{e(s.ticker)}</b> · {kind} · aviso del {s.signal_date:%d/%m} (hace {days} días) · va {ret}")
+        lines.append(f"    Entrada {setups._fmt_price(s.entry)} → objetivo {setups._fmt_price(s.target)} / stop {setups._fmt_price(s.stop)}")
+        reasons = [r for r in (s.reasons or "").split(" | ") if r][:2]
+        if reasons:
+            lines.append(f"    Por qué: {e('; '.join(reasons))}")
+        who = _who(setups.signal_context(db, s.ticker, s.signal_date))
+        lines.append(f"    Compraron antes: {who}" if who else "    Sin compras de congresistas ni directivos en los 90 días previos")
     return lines
 
 

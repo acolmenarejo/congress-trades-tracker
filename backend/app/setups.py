@@ -753,3 +753,46 @@ def scan_and_alert(db) -> dict:
         record(tk, f, st, "breakout", [f"Ruptura de {_fmt_price(hit['level'])} con volumen x{hit['vol_ratio']:.1f}"])
     db.commit()
     return {"tickers": len(tickers), "candidates": len(candidates), "breakouts": len(breakouts), "messages_sent": sent}
+
+
+def signal_context(db, ticker: str, signal_date: date, days: int = 90) -> dict:
+    """Who was buying the ticker before a signal: Congress members (by
+    transaction date) and company insiders (Form 4 open-market buys). The
+    signal itself comes from this scanner, not from any person; this is the
+    context the user asked to see next to it."""
+    from .insiders import is_company_insider
+    from .models import InsiderTrade, Trade
+
+    since = signal_date - timedelta(days=days)
+    congress = (
+        db.query(Trade)
+        .filter(Trade.ticker == ticker, Trade.transaction_type == "purchase",
+                Trade.transaction_date >= since, Trade.transaction_date <= signal_date)
+        .order_by(Trade.transaction_date.desc())
+        .limit(10)
+        .all()
+    )
+    # The same member can appear under two spellings from different sources
+    # ("Gilbert Cisneros" / "Gilbert Ray Cisneros"): keep one per surname.
+    seen: set[str] = set()
+    unique = []
+    for t in congress:
+        surname = t.member_name.split()[-1]
+        if surname not in seen:
+            seen.add(surname)
+            unique.append(t)
+    congress = unique[:5]
+    insiders = [
+        t for t in db.query(InsiderTrade)
+        .filter(InsiderTrade.ticker == ticker, InsiderTrade.transaction_date >= since,
+                InsiderTrade.transaction_date <= signal_date)
+        .order_by(InsiderTrade.transaction_date.desc())
+        .all()
+        if is_company_insider(t)
+    ][:5]
+    return {
+        "congress": [{"name": t.member_name, "date": t.transaction_date, "amount": t.amount_mid,
+                      "party": t.party} for t in congress],
+        "insiders": [{"name": t.insider_name, "role": t.role, "date": t.transaction_date,
+                      "amount": t.value_usd} for t in insiders],
+    }

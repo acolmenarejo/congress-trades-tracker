@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type SetupSignal } from "../lib/api";
-import { formatDate } from "../lib/format";
+import { formatDate, formatUSD } from "../lib/format";
 
 const STATUS: Record<SetupSignal["status"], { label: string; cls: string }> = {
   target: { label: "Objetivo ✓", cls: "text-emerald-700 dark:text-emerald-400" },
   stop: { label: "Stop ✗", cls: "text-sell dark:text-sell" },
   time: { label: "Cerrada (1 mes)", cls: "text-ink/70 dark:text-slate-300" },
-  open: { label: "Abierta", cls: "text-buy-dim dark:text-buy" },
+  open: { label: "En curso", cls: "text-buy-dim dark:text-buy" },
 };
 
 function pct(x: number | null) {
@@ -44,7 +44,9 @@ export default function SetupSignalsCard() {
         )}
       </div>
       <p className="mb-3 text-xs text-ink/60 dark:text-slate-400">
-        Cada alerta de Telegram (señal por nota ≥ 70 o ruptura) con su entrada, objetivo y stop. Se cierra al tocar uno de los dos o al mes.
+        Cada alerta técnica que mandó el bot por Telegram (nota ≥ 70 o ruptura), con su entrada, objetivo y stop.
+        "En curso" = aún no ha tocado ni objetivo ni stop; se cierra al tocar uno de los dos o al mes. Debajo, el
+        motivo y quién compró el valor en los 90 días previos.
       </p>
       {signals === null && <p className="text-sm text-ink/60 dark:text-slate-400">Cargando…</p>}
       {signals !== null && (
@@ -62,8 +64,17 @@ export default function SetupSignalsCard() {
             <tbody>
               {signals.map((s) => {
                 const st = STATUS[s.status];
+                const buyers = [
+                  ...(s.context?.congress ?? []).map(
+                    (c) => `${c.name} (congresista, ${formatDate(c.date)}${c.amount ? `, ${formatUSD(c.amount)}` : ""})`,
+                  ),
+                  ...(s.context?.insiders ?? []).map(
+                    (i) => `${i.name} (${i.role || "directivo"}, ${formatDate(i.date)}, ${formatUSD(i.amount)})`,
+                  ),
+                ];
                 return (
-                  <tr key={`${s.ticker}-${s.signal_date}`} className="border-t border-ink/5 dark:border-slate-100/5">
+                  <Fragment key={`${s.ticker}-${s.signal_date}`}>
+                  <tr className="border-t border-ink/5 dark:border-slate-100/5">
                     <td className="py-1.5 pr-3 font-medium">
                       <Link to={`/tickers/${s.ticker}`} className="hover:underline">
                         {s.ticker}
@@ -89,6 +100,17 @@ export default function SetupSignalsCard() {
                       {s.status === "open" && <span className="ml-1 text-xs text-ink/50 dark:text-slate-500">hoy</span>}
                     </td>
                   </tr>
+                  <tr>
+                    <td colSpan={5} className="pb-2 pr-3 text-xs text-ink/60 dark:text-slate-400">
+                      {s.reasons.length > 0 && <span>Por qué: {s.reasons.slice(0, 2).join("; ")}. </span>}
+                      {buyers.length > 0 ? (
+                        <span>Compraron antes: {buyers.slice(0, 4).join("; ")}.</span>
+                      ) : (
+                        <span>Sin compras de congresistas ni directivos en los 90 días previos.</span>
+                      )}
+                    </td>
+                  </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

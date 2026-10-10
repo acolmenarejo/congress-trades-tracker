@@ -190,6 +190,10 @@ export interface SetupSignal {
   bars: number | null;
   last_close: number | null;
   return_pct: number | null;
+  context?: {
+    congress: { name: string; date: string; amount: number | null; party: string | null }[];
+    insiders: { name: string; role: string | null; date: string; amount: number }[];
+  };
 }
 
 export interface InsiderBuy {
