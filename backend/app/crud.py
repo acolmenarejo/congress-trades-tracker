@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func
@@ -200,7 +200,7 @@ def get_ticker_summary(db: Session, ticker: str, limit: int = 200):
     }
 
 
-def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 100):
+def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 100, min_trades: int = 0):
     valid_sorts = {
         "total_return_pct",
         "annualized_return_pct",
@@ -217,6 +217,7 @@ def get_rankings(db: Session, sort_by: str = "total_return_pct", limit: int = 10
     rankings = (
         db.query(MemberRanking, Member)
         .join(Member, Member.match_key == MemberRanking.match_key)
+        .filter(MemberRanking.trade_count >= min_trades)
         .order_by(col.desc().nullslast())
         .limit(limit)
         .all()
@@ -260,13 +261,16 @@ def get_ticker_prices(db: Session, ticker: str, days: int = 180):
     ]
 
 
-def get_polymarket_alerts(db: Session, limit: int = 50):
-    rows = (
-        db.query(PolymarketAlert)
-        .order_by(PolymarketAlert.trade_timestamp.desc().nullslast(), PolymarketAlert.detected_at.desc())
-        .limit(limit)
-        .all()
-    )
+def get_polymarket_alerts(db: Session, limit: int = 50, days: int = 7, category: str | None = None):
+    """Suspicious bets, most suspicious first. Pre-Oct 2026 "whale" rows
+    have no score and are left out."""
+    from . import polymarket
+
+    since = datetime.utcnow() - timedelta(days=days)
+    q = db.query(PolymarketAlert).filter(PolymarketAlert.score.isnot(None), PolymarketAlert.detected_at >= since)
+    if category:
+        q = q.filter(PolymarketAlert.tag == category)
+    rows = q.order_by(PolymarketAlert.score.desc(), PolymarketAlert.trade_timestamp.desc()).limit(limit).all()
     return [
         {
             "id": r.id,
@@ -284,6 +288,12 @@ def get_polymarket_alerts(db: Session, limit: int = 50):
             "market_slug": r.market_slug,
             "trade_timestamp": r.trade_timestamp.isoformat() if r.trade_timestamp else None,
             "detected_at": r.detected_at.isoformat() if r.detected_at else None,
+            "score": r.score,
+            "reasons": [x for x in (r.reasons or "").split(" | ") if x],
+            "hours_to_end": r.hours_to_end,
+            "wallet_markets": r.wallet_markets,
+            "implication": r.implication,
+            "alerted": polymarket.should_alert(r),
         }
         for r in rows
     ]

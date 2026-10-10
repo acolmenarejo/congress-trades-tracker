@@ -219,6 +219,9 @@ def compute_features(
 
 # ---------------------------------------------------------------- scoring
 
+CONGRESS_MAX = 20.0
+
+
 @dataclass
 class Setup:
     direction: str  # "long" | "short"
@@ -226,6 +229,18 @@ class Setup:
     blocks: dict[str, float] = field(default_factory=dict)  # block -> points
     reasons: list[str] = field(default_factory=list)
     risks: list[str] = field(default_factory=list)
+
+    @property
+    def congress(self) -> float:
+        return self.blocks.get("congreso", 0.0)
+
+    @property
+    def technical(self) -> float:
+        """Chart-only score rescaled to 0-100. Congress buying is a bonus on
+        top (it's the block the backtest found adds edge), never a penalty
+        when absent — so it's shown apart. `score` (technical + bonus, max
+        100) is still what the >= 70 alert threshold was backtested on."""
+        return round((self.score - self.congress) / (100 - CONGRESS_MAX) * 100, 1)
 
 
 def _clip(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -309,7 +324,7 @@ def score(f: dict, direction: str) -> Setup:
     same, other = (f["congress_buyers"], f["congress_sellers"]) if s > 0 else (f["congress_sellers"], f["congress_buyers"])
     net = same - other
     if net > 0:
-        cong = min(20.0, 8.0 * net)
+        cong = min(CONGRESS_MAX, 8.0 * net)
         reasons.insert(0, f"{same} {'congresista' if same == 1 else 'congresistas'} {'comprando' if s > 0 else 'vendiendo'} (30 días)")
     elif net < 0:
         risks.append(f"{other} {'congresista' if other == 1 else 'congresistas'} en sentido contrario")
@@ -339,6 +354,49 @@ def trade_plan(f: dict, direction: str, stop_atr: float = STOP_ATR, target_atr: 
         "risk_reward": abs(target - c) / abs(c - stop) if c != stop else None,
         "horizon_bars": HORIZON_BARS,
     }
+
+
+# ---------------------------------------------------------------- breakouts
+
+# A "base" is a stock in an uptrend, near its yearly high, whose daily range
+# has been unusually tight; the breakout is the first close above the base's
+# 10-day high on clearly above-average volume. Independent of the score
+# above: a coiled chart can score low on money flow and still break out.
+#
+# Backtest (setups/breakout_report.md, 2020-2026): NO proven edge — about
+# +0.6%/trade in-sample and +0.2% out-of-sample with the 2/3 ATR plan, no
+# better than a random entry, and slightly behind SPY after 2025. So it is
+# only alerted for tickers the user already follows (watchlist, recent
+# insider buys), labelled as unproven, never for the whole universe.
+BASE_MAX_BBW_PCT = 0.25
+BASE_MIN_DIST_HI52 = 0.90
+BREAKOUT_MIN_VOL_RATIO = 1.5
+
+
+def is_base(f: dict | None, max_bbw_pct: float = BASE_MAX_BBW_PCT) -> bool:
+    return bool(
+        f
+        and f["close"] > f["sma50"] > f["sma200"]
+        and f["dist_hi52"] >= BASE_MIN_DIST_HI52
+        and f["bbw_pct"] <= max_bbw_pct
+    )
+
+
+def breakout_at(bars: list[dict], feats: list[dict | None], i: int,
+                min_vol_ratio: float = BREAKOUT_MIN_VOL_RATIO, max_bbw_pct: float = BASE_MAX_BBW_PCT) -> dict | None:
+    """Breakout on bar i out of the base that stood on bar i-1, or None.
+    Point-in-time (only bars <= i), so the backtest uses it unchanged."""
+    if i < 51 or feats[i] is None:
+        return None
+    prev = feats[i - 1]
+    if not is_base(prev, max_bbw_pct):
+        return None
+    b = bars[i]
+    vol50 = sum(float(x.get("volume") or 0) for x in bars[i - 50 : i]) / 50
+    vol_ratio = float(b.get("volume") or 0) / vol50 if vol50 else 0.0
+    if b["close"] <= prev["high10"] or vol_ratio < min_vol_ratio:
+        return None
+    return {"level": prev["high10"], "vol_ratio": vol_ratio, "base_bbw_pct": prev["bbw_pct"]}
 
 
 # ---------------------------------------------------------------- alert text
@@ -373,6 +431,31 @@ def plan_lines(f: dict, direction: str = "long") -> list[str]:
     ]
 
 
+def format_breakout(ticker: str, f: dict, hit: dict, st: Setup, name: str | None = None,
+                    profile: list[str] | None = None, congress: list[str] | None = None) -> str:
+    import html
+
+    e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
+    lines = [
+        f"🚀 <b>RUPTURA</b> · <b>{e(ticker)}</b>" + (f" · {e(name)}" if name else ""),
+        f"Cierra en {_fmt_price(f['close'])}, por encima de {_fmt_price(hit['level'])} (máximo de 10 días), "
+        f"con volumen x{hit['vol_ratio']:.1f}",
+        *(profile or []),
+        "",
+        *plan_lines(f),
+        "",
+        "✓ Tendencia alcista y cerca de máximos anuales",
+        f"✓ Venía de una base muy estrecha (volatilidad en el {hit['base_bbw_pct'] * 100:.0f}% más bajo de 6 meses)",
+        f"Nota técnica: {st.technical:.0f}/100" + (f" · +{st.congress:.0f} por congresistas comprando" if st.congress else ""),
+        "⚠ En el backtest las rupturas no baten al azar: úsalo como aviso para mirar el gráfico, no como señal",
+        *[f"⚠ {e(r)}" for r in st.risks[:2]],
+        *([""] + congress if congress else []),
+        "",
+        "<i>Ruptura automática · no es asesoramiento</i>",
+    ]
+    return "\n".join(lines)
+
+
 def format_alert(
     ticker: str, f: dict, st: Setup, name: str | None = None, profile: list[str] | None = None, congress: list[str] | None = None
 ) -> str:
@@ -384,7 +467,8 @@ def format_alert(
     long_ = st.direction == "long"
     lines = [
         f"{'📈' if long_ else '📉'} <b>{e(ticker)}</b>" + (f" · {e(name)}" if name else ""),
-        f"{'Posible subida' if long_ else 'Posible bajada'} · <b>{st.score:.0f}</b>/100 {_score_bar(st.score)}",
+        f"{'Posible subida' if long_ else 'Posible bajada'} · técnico <b>{st.technical:.0f}</b>/100 {_score_bar(st.technical)}",
+        *([f"🏛 +{st.congress:.0f} por congresistas comprando · nota total {st.score:.0f}"] if st.congress else []),
         *(profile or []),
         "",
         *plan_lines(f, st.direction),
@@ -480,6 +564,8 @@ ALERT_MIN_SCORE = 70
 HIGH_VOL_ATR_PCT = 0.025  # score>=70 AND ATR>2.5% did even better (+2.8-3.2%/trade) but on few samples
 COOLDOWN_DAYS = 30
 MAX_ALERTS_PER_RUN = 3
+MAX_BREAKOUTS_PER_RUN = 3
+BREAKOUT_ALERTS = True
 EXTRA_TICKERS = ["GLD", "SLV", "USO", "UNG", "CPER", "DBA", "URA", "XLE", "XLF", "XLK", "XLV", "SMH", "QQQ", "IWM"]
 
 
@@ -527,17 +613,52 @@ def universe(db, min_trades: int = 5) -> tuple[list[str], dict[str, list]]:
     return tickers + [t for t in EXTRA_TICKERS if t not in tickers], events
 
 
-def _simulate_outcome(bars: list[dict], sig) -> str | None:
-    """target/stop/time for a past signal, once its horizon has elapsed."""
-    after = [b for b in bars if b["date"] > sig.signal_date]
-    if len(after) < HORIZON_BARS:
-        return None
-    for b in after[:HORIZON_BARS]:
+def breakout_universe(db) -> list[str]:
+    """Extra tickers watched for breakouts only (they're outside the
+    backtested score universe): Telegram watchlists, and companies whose
+    insiders bought in the last 90 days — e.g. CRBG, which Congress never
+    traded but had a textbook base."""
+    from .insiders import is_company_insider
+    from .models import InsiderTrade, TelegramWatch
+
+    since = date.today() - timedelta(days=90)
+    watched = {v.strip().upper() for (v,) in db.query(TelegramWatch.value).filter(TelegramWatch.watch_type == "ticker")}
+    insiders = {t.ticker for t in db.query(InsiderTrade).filter(InsiderTrade.transaction_date >= since) if is_company_insider(t)}
+    return sorted(t for t in watched | insiders if t and t.isalpha() and len(t) <= 5)
+
+
+def evaluate_signal(bars: list[dict], sig) -> dict:
+    """Live result of a sent signal: resolves as soon as the stop or target is
+    touched (stop first if both fall in the same bar — the conservative
+    reading the backtest uses), or by time after HORIZON_BARS sessions.
+    status: open | target | stop | time."""
+    after = [b for b in bars if b["date"] > sig.signal_date and b.get("close")]
+    res = {"status": "open", "exit_date": None, "exit_price": None, "bars": len(after),
+           "last_close": after[-1]["close"] if after else None}
+    for i, b in enumerate(after[:HORIZON_BARS]):
         if b["low"] <= sig.stop:
-            return "stop"
+            res.update(status="stop", exit_date=b["date"], exit_price=sig.stop, bars=i + 1)
+            break
         if b["high"] >= sig.target:
-            return "target"
-    return "time"
+            res.update(status="target", exit_date=b["date"], exit_price=sig.target, bars=i + 1)
+            break
+    else:
+        if len(after) >= HORIZON_BARS:
+            last = after[HORIZON_BARS - 1]
+            res.update(status="time", exit_date=last["date"], exit_price=last["close"], bars=HORIZON_BARS)
+    ref = res["exit_price"] or res["last_close"]
+    res["return_pct"] = (ref / sig.entry - 1) * 100 if ref and sig.entry else None
+    return res
+
+
+def format_outcome(sig, res: dict) -> str:
+    icon, label = {"target": ("✅", "objetivo alcanzado"), "stop": ("❌", "stop tocado"),
+                   "time": ("⏱", "cerrada por tiempo (1 mes)")}[res["status"]]
+    return "\n".join([
+        f"{icon} <b>{sig.ticker}</b> · señal del {sig.signal_date:%d/%m}: {label}",
+        f"Entrada {_fmt_price(sig.entry)} → salida {_fmt_price(res['exit_price'])} "
+        f"(<b>{res['return_pct']:+.1f}%</b>) en {res['bars']} sesiones",
+    ])
 
 
 def _clean_name(raw: str) -> str:
@@ -552,56 +673,83 @@ def _clean_name(raw: str) -> str:
 def scan_and_alert(db) -> dict:
     from . import prices
     from .config import TELEGRAM_BOT_TOKEN
-    from .models import SetupSignal, TelegramSubscriber
+    from .models import CompanyProfile, SetupSignal, TelegramSubscriber
     from .models import Trade
     from .company import congress_lines, profile_lines
-    from .telegram_api import send_alert
+    from .telegram_api import send_alert, send_message
 
     tickers, events = universe(db)
+    score_universe = set(tickers)
+    breakout_set = set(breakout_universe(db))
+    open_signals = {s.ticker: s for s in db.query(SetupSignal).filter(SetupSignal.outcome.is_(None))}
+    # Open signals are always re-checked, even if their ticker left both lists.
+    tickers += sorted((breakout_set | set(open_signals)) - score_universe)
     start, end = date.today() - timedelta(days=560), date.today()
     spy_bars = prices._fetch_from_yahoo("SPY", start, end)
     spy = {b["date"]: b["close"] for b in spy_bars}
     last_session = spy_bars[-1]["date"] if spy_bars else None
 
-    open_signals = {s.ticker: s for s in db.query(SetupSignal).filter(SetupSignal.outcome.is_(None))}
     recent = {
         s.ticker
         for s in db.query(SetupSignal).filter(SetupSignal.signal_date >= date.today() - timedelta(days=COOLDOWN_DAYS))
     }
 
     candidates = []
+    breakouts = []
+    resolved = []
     for tk in tickers:
         bars = prices._fetch_from_yahoo(tk, start, end)
         prices.throttle()
         if tk in open_signals:
-            outcome = _simulate_outcome(bars, open_signals[tk])
-            if outcome:
-                open_signals[tk].outcome = outcome
+            res = evaluate_signal(bars, open_signals[tk])
+            if res["status"] != "open":
+                sig = open_signals[tk]
+                sig.outcome, sig.exit_date, sig.exit_price = res["status"], res["exit_date"], res["exit_price"]
+                resolved.append((open_signals[tk], res))
         if not bars or bars[-1]["date"] != last_session or tk in recent:
             continue
-        f = compute_features(bars, spy, events.get(tk))[-1]
+        feats = compute_features(bars, spy, events.get(tk))
+        f = feats[-1] if feats else None
         if f is None or f["dollar_vol"] < MIN_DOLLAR_VOLUME:
             continue
         st = score(f, "long")
-        if st.score >= ALERT_MIN_SCORE:
+        if tk in score_universe and st.score >= ALERT_MIN_SCORE:
             candidates.append((st.score, tk, f, st, bars))
+        elif BREAKOUT_ALERTS and tk in breakout_set and (hit := breakout_at(bars, feats, len(bars) - 1)):
+            breakouts.append((hit["vol_ratio"], tk, f, st, bars, hit))
 
     candidates.sort(key=lambda x: (-x[0], x[1]))
+    breakouts.sort(key=lambda x: (-x[0], x[1]))
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
     sent = 0
+    for sig, res in resolved:
+        sent += sum(send_message(c, format_outcome(sig, res)) for c in chats)
+
+    def name_of(tk):
+        row = db.query(Trade.asset_name).filter(Trade.ticker == tk, Trade.asset_name.isnot(None)).order_by(Trade.id.desc()).first()
+        if row:
+            return _clean_name(row[0])
+        prof = db.get(CompanyProfile, tk)
+        return prof.name if prof else None
+
+    def record(tk, f, st, kind, reasons):
+        plan = trade_plan(f, "long")
+        db.add(SetupSignal(
+            ticker=tk, direction=kind, signal_date=f["date"], score=st.score,
+            entry=plan["entry"], stop=plan["stop"], target=plan["target"], reasons=" | ".join(reasons),
+        ))
+
     for _, tk, f, st, bars in candidates[:MAX_ALERTS_PER_RUN]:
         if f["atr_pct"] >= HIGH_VOL_ATR_PCT:
             st.reasons.append("Alta volatilidad: el grupo que mejor rindió en el backtest")
-        plan = trade_plan(f, "long")
-        name = db.query(Trade.asset_name).filter(Trade.ticker == tk, Trade.asset_name.isnot(None)).order_by(Trade.id.desc()).first()
-        body = format_alert(
-            tk, f, st, _clean_name(name[0]) if name else None, profile_lines(db, tk), congress_lines(db, tk)
-        )
+        body = format_alert(tk, f, st, name_of(tk), profile_lines(db, tk), congress_lines(db, tk))
         png = render_chart(tk, bars, f)
         sent += sum(send_alert(c, body, png) for c in chats)
-        db.add(SetupSignal(
-            ticker=tk, direction="long", signal_date=f["date"], score=st.score,
-            entry=plan["entry"], stop=plan["stop"], target=plan["target"], reasons=" | ".join(st.reasons),
-        ))
+        record(tk, f, st, "long", st.reasons)
+    for _, tk, f, st, bars, hit in breakouts[:MAX_BREAKOUTS_PER_RUN]:
+        body = format_breakout(tk, f, hit, st, name_of(tk), profile_lines(db, tk), congress_lines(db, tk))
+        png = render_chart(tk, bars, f)
+        sent += sum(send_alert(c, body, png) for c in chats)
+        record(tk, f, st, "breakout", [f"Ruptura de {_fmt_price(hit['level'])} con volumen x{hit['vol_ratio']:.1f}"])
     db.commit()
-    return {"tickers": len(tickers), "candidates": len(candidates), "messages_sent": sent}
+    return {"tickers": len(tickers), "candidates": len(candidates), "breakouts": len(breakouts), "messages_sent": sent}

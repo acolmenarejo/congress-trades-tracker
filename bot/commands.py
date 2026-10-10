@@ -17,8 +17,21 @@ except ImportError:
     pass
 
 from app.bot_commands import process_updates  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app import digest  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 if __name__ == "__main__":
     process_updates()
+    # Piggybacks on this frequent run (Vercel-triggered, so it actually fires
+    # on time) instead of its own cron. Only here, not on Vercel's
+    # /internal/poll: there the DB is a throwaway copy, so "already sent
+    # today" would never stick.
+    db = SessionLocal()
+    try:
+        digest.maybe_send(db)
+    except Exception:
+        logging.exception("digest failed")
+    finally:
+        db.close()

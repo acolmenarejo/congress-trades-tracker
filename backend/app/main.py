@@ -138,9 +138,12 @@ def feed_rss(
 def members_ranking(
     sort_by: str = Query("total_return_pct"),
     limit: int = Query(100, le=500),
+    min_trades: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    return crud.get_rankings(db, sort_by=sort_by, limit=limit)
+    # min_trades: a +114% "return" over 2 trades is luck, not skill — the
+    # Ranking page asks for >= 10 by default.
+    return crud.get_rankings(db, sort_by=sort_by, limit=limit, min_trades=min_trades)
 
 
 @app.get("/members/{match_key}", response_model=MemberOut)
@@ -186,13 +189,113 @@ def get_ticker_earnings(ticker: str, db: Session = Depends(get_db)):
     return crud.get_earnings_dates(db, ticker)
 
 
+@app.get("/macro")
+def get_macro(db: Session = Depends(get_db)):
+    """Rates, bond volatility, credit and liquidity plumbing with a reading
+    and what it implies per indicator — see app/macro.py. Data refreshed
+    daily by macro.yml; this only reads."""
+    from . import macro
+
+    return macro.snapshot(db)
+
+
 @app.get("/polymarket/whale-bets", response_model=list[PolymarketAlertOut])
-def get_polymarket_whale_bets(limit: int = Query(50, le=200), db: Session = Depends(get_db)):
-    """Unusually large single trades on political/policy Polymarket markets
-    with real remaining uncertainty — see app/polymarket.py. Populated by a
-    scheduled scan (backend/polymarket/scan_whale_bets.py via GitHub
-    Actions), not computed per-request."""
-    return crud.get_polymarket_alerts(db, limit=limit)
+def get_polymarket_whale_bets(
+    limit: int = Query(50, le=200),
+    days: int = Query(7, ge=1, le=90),
+    category: Optional[str] = Query(None, pattern="^(mercados|geopolitica|otros)$"),
+    db: Session = Depends(get_db),
+):
+    """Suspicious Polymarket bets (big, long-shot, short-dated, fresh wallet),
+    most suspicious first — see app/polymarket.py. Populated by a scheduled
+    scan (backend/polymarket/scan_whale_bets.py via GitHub Actions)."""
+    return crud.get_polymarket_alerts(db, limit=limit, days=days, category=category)
+
+
+@app.get("/insiders")
+def get_insiders(days: int = Query(60, le=365), only_relevant: bool = Query(True), db: Session = Depends(get_db)):
+    """Open-market insider purchases (SEC Form 4, app/insiders.py), grouped by
+    ticker. only_relevant applies the same filter as the Telegram alerts."""
+    import math
+    from datetime import timedelta
+
+    from . import insiders
+    from .models import InsiderTrade
+
+    since = date.today() - timedelta(days=days)
+    rows = (
+        db.query(InsiderTrade)
+        .filter(InsiderTrade.transaction_date >= since)
+        .order_by(InsiderTrade.transaction_date.desc())
+        .all()
+    )
+    groups: dict[str, dict] = {}
+    for t in rows:
+        company = insiders.is_company_insider(t)
+        alert, _ = insiders.should_alert(db, t) if company else (False, [])
+        if only_relevant and not alert:
+            continue
+        inc = insiders.position_increase(t)
+        g = groups.setdefault(t.ticker, {
+            "ticker": t.ticker, "company": insiders._pretty(t.issuer_name) or t.ticker,
+            "total_usd": 0.0, "last_date": None, "insiders": set(), "buys": [],
+        })
+        g["total_usd"] += t.value_usd
+        g["insiders"].add(t.insider_cik or t.insider_name)
+        g["last_date"] = max(filter(None, [g["last_date"], t.transaction_date]), default=None)
+        g["buys"].append({
+            "insider": insiders._pretty(t.insider_name),
+            "role": insiders._role_es(t.role),
+            "date": t.transaction_date,
+            "filed_at": t.filed_at,
+            "value_usd": t.value_usd,
+            "shares": t.shares,
+            "avg_price": t.avg_price,
+            "position_increase_pct": None if inc is None else (-1 if inc == math.inf else inc * 100),
+            "company_insider": company,
+            "alerted": alert,
+        })
+    out = []
+    for g in groups.values():
+        g["n_insiders"] = len(g.pop("insiders"))
+        out.append(g)
+    out.sort(key=lambda g: (g["last_date"] or date.min), reverse=True)
+    return out
+
+
+@app.get("/setups/signals")
+def get_setup_signals(db: Session = Depends(get_db)):
+    """Technical setup alerts that were sent (app/setups.py) with their live
+    result: hit target, hit stop, closed by time, or still open with the
+    return so far. Prices come from the shared cache/Yahoo per request —
+    there are only a handful of signals."""
+    from datetime import timedelta
+
+    from . import prices, setups
+    from .models import SetupSignal
+
+    out = []
+    for sig in db.query(SetupSignal).order_by(SetupSignal.signal_date.desc()).limit(100):
+        if sig.outcome and sig.exit_price:
+            # Resolved by setups.yml: stored, so no price fetch per request
+            # (keeps this inside Vercel's function time limit as signals pile up).
+            res = {"status": sig.outcome, "exit_date": sig.exit_date, "exit_price": sig.exit_price, "bars": None,
+                   "last_close": None, "return_pct": (sig.exit_price / sig.entry - 1) * 100}
+        else:
+            bars = prices.get_price_series(db, sig.ticker, sig.signal_date - timedelta(days=5), date.today())
+            res = setups.evaluate_signal(bars, sig)
+        out.append({
+            "ticker": sig.ticker,
+            "kind": sig.direction,  # long (score >= 70) | breakout
+            "signal_date": sig.signal_date,
+            "score": sig.score,
+            "entry": sig.entry,
+            "stop": sig.stop,
+            "target": sig.target,
+            "reasons": sig.reasons.split(" | ") if sig.reasons else [],
+            **res,
+        })
+    return out
 
 
 def _dispatch_workflow(workflow_file: str) -> int:

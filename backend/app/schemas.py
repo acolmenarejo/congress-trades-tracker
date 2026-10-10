@@ -132,3 +132,9 @@ class PolymarketAlertOut(BaseModel):
     market_slug: Optional[str] = None
     trade_timestamp: Optional[str] = None
     detected_at: Optional[str] = None
+    score: Optional[float] = None
+    reasons: list[str] = []
+    hours_to_end: Optional[float] = None
+    wallet_markets: Optional[int] = None
+    implication: Optional[str] = None
+    alerted: bool = False

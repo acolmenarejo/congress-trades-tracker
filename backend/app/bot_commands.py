@@ -24,6 +24,7 @@ HELP_TEXT = (
     "/watchticker TICKER — avisa cuando cualquier congresista opere ese ticker (ej. /watchticker NVDA)\n"
     "/unwatchticker TICKER — deja de vigilar ese ticker\n"
     "/list — muestra tu lista de vigilancia actual\n"
+    "/resumen — resumen de las últimas 24 h (también llega solo cada mañana)\n"
 )
 
 _DEFAULT_NAMES = {match_key: name for match_key, name in DEFAULT_WATCHED_MEMBERS}
@@ -149,6 +150,10 @@ def _dispatch(db, chat_id: int, text: str, is_new_subscriber: bool) -> str:
         return _handle_unwatchticker(db, chat_id, arg)
     if command == "/list":
         return _handle_list(db, chat_id)
+    if command == "/resumen":
+        from . import digest
+
+        return digest.build(db)
     return "No entendí ese comando. Usa /help para ver la lista de comandos."
 
 

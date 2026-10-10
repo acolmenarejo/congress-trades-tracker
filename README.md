@@ -178,6 +178,22 @@ watch. El flag `Trade.notified` evita reenvíos si algo falla a mitad de proceso
 Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settings
 → Secrets and variables → Actions), igual que `FMP_API_KEY`.
 
+## Resumen diario, Macro y Polymarket
+
+- **Resumen diario** por Telegram (~9:00 en Madrid) y bajo demanda con
+  `/resumen`: operaciones nuevas del Congreso, compras relevantes de
+  directivos, señales abiertas, entorno macro y las apuestas más raras de
+  Polymarket. Ver `backend/app/digest.py`.
+- **Macro** (`/macro`, página Macro): bono a 10 y 2 años frente al tipo de la
+  Fed, curva 10-2, MOVE, VIX, diferencial high yield, liquidez neta (balance
+  de la Fed − cuenta del Tesoro − repo inverso), reservas bancarias y
+  SOFR − IORB. Cada indicador trae lectura y "qué implica". Datos de FRED y
+  Yahoo, actualizados por `macro.yml`.
+- **Polymarket** (`/polymarket/whale-bets`, página Polymarket): apuestas
+  sospechosas con nota 0-100 (tamaño, improbabilidad, cercanía de la fecha,
+  cartera nueva, peso sobre la liquidez). Avisa por Telegram de las
+  relacionadas con mercados (≥ 55) y geopolítica (≥ 75). Escaneo cada hora.
+
 ## Despliegue gratuito
 
 - **Bot Telegram + ingesta + ranking**: ya corren solos en GitHub Actions
@@ -208,10 +224,8 @@ Falta por añadir cuando conectes GitHub: el secret `TELEGRAM_BOT_TOKEN` (Settin
 
 ## Backlog (ideas extra del encargo, no implementadas aún)
 
-- Digest diario/semanal por Telegram (ahora mismo solo hay alertas instantáneas)
 - Comparativa demócratas vs. republicanos más allá del gráfico compra/venta del dashboard
 - Simulador "qué hubiera pasado si copio a X" (cartera virtual con evolución)
 - Detección de trades inusuales cruzando calendario legislativo
-- Webhook genérico (Discord/email) además de Telegram
 - API pública de solo lectura documentada
 - Heatmap de actividad por sector/ticker

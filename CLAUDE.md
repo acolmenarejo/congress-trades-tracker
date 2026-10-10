@@ -148,15 +148,75 @@ y revisión general de mejoras de frontend.
   pierden dinero en todos los niveles, por eso no se alertan. No reajustar
   pesos mirando el backtest sin separar in/out-of-sample.
 - `app/insiders.py` + `insiders.yml` (cada 30 min, con `concurrency`): compras
-  en mercado abierto (Form 4, código P) de SEC EDGAR. SEC exige email en el
+  en mercado abierto (Form 4, código P) de SEC EDGAR. Filtro (2026-10-10, el
+  usuario se quejaba de ~7 alertas/día): solo directivos/consejeros personas
+  físicas de empresas operativas (fuera accionistas 10% solo, entidades,
+  fondos cerrados/ETF/BDC, precio < 5 $, compras en la OPV, filings con > 30
+  días de retraso); alerta si la compra sube su posición ≥ 20% (CEO/CFO ≥ 10%)
+  y ≥ 100k $, o si ≥ 3 directivos compran en 30 días. Un ticker = un mensaje
+  (el cluster se resume en uno). Con los datos de sept-oct: de 98 a ~8 mensajes
+  en 2 semanas. SEC exige email en el
   User-Agent → secreto `SEC_USER_AGENT`. Fuera de `bot-poll.yml` a propósito:
   un escaneo tarda minutos y solaparía pushes del SQLite.
 - Ambas alertas van a **todos** los suscriptores, no dependen de la watchlist.
-  `SetupSignal` guarda cada señal enviada para medir el acierto en vivo.
+  `SetupSignal` guarda cada señal enviada para medir el acierto en vivo:
+  `setups.yml` la cierra en cuanto toca objetivo/stop (o a los 20 días), avisa
+  por Telegram del resultado, y `/setups/signals` + `SetupSignalsCard` lo
+  muestran en el Dashboard.
+- La nota se muestra separada: "técnico X/100" (bloques sin Congreso, reescalado
+  a 100) + "+N por congresistas" aparte (el usuario no quiere que la ausencia de
+  compras del Congreso parezca penalizar). El umbral ≥ 70 sigue aplicándose a la
+  nota total, que es lo backtesteado.
+- Rupturas (`breakout_at`): base estrecha cerca de máximos + cierre sobre el
+  máximo de 10 días con volumen ≥ 1,5x. Backtest (`setups/breakout_report.md`):
+  **sin ventaja** fuera de muestra. Por eso solo se avisan para tickers de la
+  watchlist y con compras de directivos en 90 días (`breakout_universe`),
+  etiquetadas como no probadas. Se guardan en `SetupSignal` con
+  `direction="breakout"` para medir su acierto en vivo.
+- Polymarket (`app/polymarket.py`, `polymarket.yml` cada hora, rehecho
+  2026-10-10): busca **apuestas sospechosas**, no "quién va ganando". Nota
+  0-100: tamaño (≥ 10k $), apuesta improbable (precio bajo), se resuelve
+  pronto, cartera casi nueva (`/traded` de data-api) y peso sobre la
+  liquidez. Se juzga por **posición**, no por operación: agrupa compras
+  (desde 2.000 $) por cartera + mercado + resultado y suma la posición entera
+  de `/positions`, así una apuesta troceada o acumulada en días cuenta como
+  una. Ignora deportes y cripto a corto plazo (regex `SKIP`). Telegram
+  solo para mercados/economía con nota ≥ 55 y geopolítica ≥ 75; el resto,
+  solo web. Las filas antiguas ("ballenas") tienen `score` NULL y no se
+  muestran ni se avisan. No tiene relación con empresas: no usarlo para
+  filtrar directivos.
+
+## Resumen diario, macro y tamaño de la DB (2026-10-10)
+
+- `app/digest.py`: resumen por Telegram una vez al día pasadas las 07:00 UTC,
+  enviado desde `bot/commands.py` (la ejecución frecuente de `bot-poll.yml`,
+  porque el `schedule:` de GitHub llega con horas de retraso). También con
+  `/resumen`. Secciones: Congreso, directivos, señales abiertas, macro y
+  Polymarket (`EXTRA_SECTIONS`).
+- `app/macro.py` + `macro.yml` (diario): series de FRED vía `fredgraph.csv`
+  (sin clave) y ^MOVE/^VIX de Yahoo en `macro_points`. `/macro` y la página
+  Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
+  mercado (no ajustadas).
+- `app/polymarket_macro.py` (cada hora, dentro de `polymarket.yml`): saca de
+  Polymarket la probabilidad de la próxima decisión de la Fed, de otra subida
+  este año, de recesión y el reparto del próximo IPC (busca los eventos por
+  patrón de título, no por slug: abren uno nuevo por reunión/mes). Se guardan
+  como series `PM_*` en `macro_points`; `macro.polymarket_view` las cruza con
+  el bono a 2 años y el high yield y avisa si no cuadran (página Macro y
+  resumen diario). También trae las mismas preguntas de **Kalshi** (API
+  pública sin clave: series KXFEDDECISION, KXFEDHIKE, KXRECSSNBER, KXCPIYOY;
+  series `KS_*`) y avisa si difieren ≥ 15 puntos de Polymarket. Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
+  dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
+  peticiones con User-Agent de navegador: no usar uno.
+- `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
+  se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
+  (GitHub rechaza ficheros de > 100 MB).
+- Columnas nuevas en tablas existentes: añadirlas a `database._ADDED_COLUMNS`
+  (SQLite no las crea con `create_all`).
 
 ## Backlog (ver README.md para la lista completa)
 
-Notas rápidas de lo no implementado: digest diario/telegram, comparativa
+Notas rápidas de lo no implementado: comparativa
 demócratas/republicanos más allá del gráfico de compra/venta, simulador
 "qué hubiera pasado si copio a X", detección de trades inusuales cruzando
-calendario legislativo, webhook genérico (Discord/email), heatmap por sector.
+calendario legislativo, heatmap por sector. (Discord/email descartado por el usuario.)

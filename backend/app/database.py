@@ -50,6 +50,7 @@ def ensure_fresh_db() -> None:
                     f.write(resp.content)
                 # Atomic swap: sessions already open keep reading the old file.
                 os.replace(tmp, LIVE_DB_PATH)
+                _add_missing_columns()  # the pushed copy may predate a new column
                 _etag = resp.headers.get("ETag")
                 logger.info("live db: refreshed from GitHub (%d bytes)", len(resp.content))
             elif resp.status_code != 304:
@@ -91,3 +92,31 @@ def init_db():
     # LIVE_DB_PATH and we'd serve that.
     ensure_fresh_db()
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+# create_all() never alters existing tables, and the committed SQLite predates
+# some columns. (table, column, SQL type) — add here when a model grows one.
+_ADDED_COLUMNS = [
+    ("setup_signals", "exit_date", "DATE"),
+    ("setup_signals", "exit_price", "FLOAT"),
+    ("polymarket_alerts", "score", "FLOAT"),
+    ("polymarket_alerts", "reasons", "VARCHAR"),
+    ("polymarket_alerts", "hours_to_end", "FLOAT"),
+    ("polymarket_alerts", "wallet_markets", "INTEGER"),
+    ("polymarket_alerts", "implication", "VARCHAR"),
+    ("polymarket_alerts", "notified", "BOOLEAN"),
+]
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    try:
+        insp = inspect(engine)
+        with engine.begin() as conn:
+            for table, col, typ in _ADDED_COLUMNS:
+                if insp.has_table(table) and col not in {c["name"] for c in insp.get_columns(table)}:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
+    except Exception:
+        logger.exception("db: could not add missing columns (read-only?)")

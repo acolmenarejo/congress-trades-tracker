@@ -101,6 +101,9 @@ class PriceCache(Base):
     ticker/date on every run."""
 
     __tablename__ = "price_cache"
+    # The (ticker, date) key is the table itself — no separate index the size
+    # of the table (see tools/compact_db.py).
+    __table_args__ = {"sqlite_with_rowid": False}
 
     ticker = Column(String, primary_key=True)
     date = Column(Date, primary_key=True)
@@ -182,6 +185,26 @@ class PolymarketAlert(Base):
     market_slug = Column(String, nullable=True)
     trade_timestamp = Column(DateTime, nullable=True)
     detected_at = Column(DateTime, server_default=func.now())
+    # Suspicious-bet scanner (Oct 2026). NULL on older "whale" rows, which
+    # are hidden from the API and never alerted (notified IS NULL).
+    score = Column(Float, nullable=True)
+    reasons = Column(String, nullable=True)  # " | "-joined, Spanish
+    hours_to_end = Column(Float, nullable=True)
+    wallet_markets = Column(Integer, nullable=True)
+    implication = Column(String, nullable=True)
+    notified = Column(Boolean, nullable=True)
+
+
+class MacroPoint(Base):
+    """One daily/weekly observation of a macro series (FRED or Yahoo), kept
+    for the Macro page and the digest. See app/macro.py."""
+
+    __tablename__ = "macro_points"
+    __table_args__ = {"sqlite_with_rowid": False}
+
+    series = Column(String, primary_key=True)
+    date = Column(Date, primary_key=True)
+    value = Column(Float, nullable=False)
 
 
 class TelegramState(Base):
@@ -237,6 +260,8 @@ class SetupSignal(Base):
     target = Column(Float, nullable=False)
     reasons = Column(String, nullable=True)
     outcome = Column(String, nullable=True)  # target | stop | time — filled in later
+    exit_date = Column(Date, nullable=True)
+    exit_price = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 

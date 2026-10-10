@@ -61,6 +61,7 @@ def fetch_and_cache_earnings(db: Session, ticker: str) -> int:
         return 0
 
     added = 0
+    seen: set = set()  # FMP sometimes lists the same date twice in one response
     for row in rows:
         date_str = row.get("date")
         if not date_str:
@@ -69,6 +70,9 @@ def fetch_and_cache_earnings(db: Session, ticker: str) -> int:
             parsed = date_type.fromisoformat(date_str)
         except ValueError:
             continue
+        if parsed in seen:
+            continue
+        seen.add(parsed)
         exists = db.query(EarningsCache).filter_by(ticker=ticker, date=parsed).one_or_none()
         if exists:
             continue

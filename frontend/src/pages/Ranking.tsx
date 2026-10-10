@@ -17,21 +17,35 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
 
 export default function Ranking() {
   const [sortBy, setSortBy] = useState("total_return_pct");
+  const [minTrades, setMinTrades] = useState(10);
   const [rows, setRows] = useState<MemberRanking[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
     api
-      .ranking(sortBy)
+      .ranking(sortBy, 100, minTrades)
       .then(setRows)
       .finally(() => setLoading(false));
-  }, [sortBy]);
+  }, [sortBy, minTrades]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-serif text-2xl font-semibold">Ranking de traders del Congreso</h2>
+        <div className="flex flex-wrap gap-2">
+        <select
+          className="rounded-md border border-ink/20 bg-paper px-2 py-1.5 text-sm dark:border-slate-100/20 dark:bg-slate-100/5"
+          value={minTrades}
+          onChange={(e) => setMinTrades(Number(e.target.value))}
+          title="Con muy pocas operaciones el retorno es suerte, no habilidad"
+        >
+          {[0, 5, 10, 20, 50].map((n) => (
+            <option key={n} value={n}>
+              {n === 0 ? "Todos los miembros" : `Mínimo ${n} trades`}
+            </option>
+          ))}
+        </select>
         <select
           className="rounded-md border border-ink/20 bg-paper px-2 py-1.5 text-sm dark:border-slate-100/20 dark:bg-slate-100/5"
           value={sortBy}
@@ -43,6 +57,7 @@ export default function Ranking() {
             </option>
           ))}
         </select>
+        </div>
       </div>
       <p className="max-w-2xl text-xs text-ink/50 dark:text-slate-400">
         El rendimiento se calcula solo sobre trades de los últimos 2 años — un miembro con

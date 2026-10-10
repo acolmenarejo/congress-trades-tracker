@@ -28,7 +28,12 @@ def main(src: str, dest: str, specs: list[str]) -> None:
                 "SELECT sql FROM src.sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL", (table,)
             ).fetchall():
                 con.execute(idx_sql)
-        cols = ", ".join(f'"{c[1]}"' for c in con.execute(f'PRAGMA src.table_info("{table}")'))
+        src_cols = con.execute(f'PRAGMA src.table_info("{table}")').fetchall()
+        have = {c[1] for c in con.execute(f'PRAGMA main.table_info("{table}")')}
+        for c in src_cols:  # a newer schema on our side (see database._ADDED_COLUMNS)
+            if c[1] not in have:
+                con.execute(f'ALTER TABLE main."{table}" ADD COLUMN "{c[1]}" {c[2]}')
+        cols = ", ".join(f'"{c[1]}"' for c in src_cols)
         sql = f'INSERT OR REPLACE INTO main."{table}" ({cols}) SELECT {cols} FROM src."{table}"'
         n = con.execute(sql + (f" WHERE {where}" if where else "")).rowcount
         print(f"merge_tables: {table}: {n} row(s)")

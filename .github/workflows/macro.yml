@@ -1,23 +1,21 @@
-name: Scan Polymarket whale bets
+name: Refresh macro data
 
 on:
   schedule:
-    # Hourly: suspicious bets are about news coming soon (markets that
-    # resolve within days), so a 3h lag was too slow for the Telegram alert.
-    # GitHub's schedule can lag; the scanner reads trades since the last
-    # one it saw, so a late run catches up rather than missing any.
-    - cron: "25 * * * *"
+    # Weekdays after the US close; FRED publishes most daily series the
+    # next morning, so each run mostly picks up the previous day.
+    - cron: "15 22 * * 1-5"
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
 concurrency:
-  group: polymarket
+  group: macro
   cancel-in-progress: false
 
 jobs:
-  scan:
+  refresh:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,15 +28,12 @@ jobs:
         working-directory: backend
         run: pip install -r requirements.txt
 
-      - name: Scan Polymarket and alert
-        working-directory: backend/polymarket
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        run: python scan_whale_bets.py
+      - name: Fetch FRED and Yahoo series
+        working-directory: backend/macro
+        run: python fetch_macro.py
 
       - name: Commit updated database
-        # Same retry/merge loop as insiders.yml: hourly now, so it races the
-        # other workflows pushing the SQLite more often.
+        # Same retry/merge loop as insiders.yml (a binary SQLite can't be rebased).
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -46,13 +41,13 @@ jobs:
           for attempt in 1 2 3 4 5; do
             git add $DB
             git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
-            git commit -q -m "chore: refresh polymarket suspicious bets [skip ci]"
+            git commit -q -m "chore: refresh macro data [skip ci]"
             if git pull --rebase -q && git push -q; then exit 0; fi
             git rebase --abort 2>/dev/null || true
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB polymarket_alerts "macro_points:series LIKE 'PM_%' OR series LIKE 'KS_%'" "telegram_state:key LIKE 'polymarket%'"
+            python backend/tools/merge_tables.py /tmp/ours.db $DB "macro_points:series NOT LIKE 'PM_%' AND series NOT LIKE 'KS_%'"
             sleep $((attempt * 5))
           done
           exit 1

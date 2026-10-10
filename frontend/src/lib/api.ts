@@ -135,6 +135,83 @@ export interface PolymarketAlert {
   market_slug: string | null;
   trade_timestamp: string | null;
   detected_at: string | null;
+  score: number | null;
+  reasons: string[];
+  hours_to_end: number | null;
+  wallet_markets: number | null;
+  implication: string | null;
+  alerted: boolean;
+}
+
+export interface MacroIndicator {
+  key: string;
+  name: string;
+  value: number | null;
+  unit: string;
+  as_of: string | null;
+  change: number | null;
+  change_label: string | null;
+  status: "ok" | "watch" | "stress";
+  reading: string;
+  action: string;
+  history: { date: string; value: number }[];
+}
+
+export interface MacroPolymarket {
+  odds: { key: string; title: string; url: string | null; text: string; kalshi?: string; change: number | null; change_label: string | null }[];
+  checks: { status: "ok" | "watch"; text: string; short?: string }[];
+  bets: { id: number; question: string; outcome: string | null; price: number | null; size_usd: number; score: number; slug: string | null }[];
+  updated: string | null;
+}
+
+export interface MacroSnapshot {
+  regime: "favorable" | "mixto" | "tenso";
+  summary: string;
+  stress: number;
+  watch: number;
+  indicators: MacroIndicator[];
+  polymarket: MacroPolymarket;
+}
+
+export type PolymarketCategory = "mercados" | "geopolitica" | "otros";
+
+export interface SetupSignal {
+  ticker: string;
+  kind: "long" | "breakout";
+  signal_date: string;
+  score: number;
+  entry: number;
+  stop: number;
+  target: number;
+  reasons: string[];
+  status: "open" | "target" | "stop" | "time";
+  exit_date: string | null;
+  exit_price: number | null;
+  bars: number | null;
+  last_close: number | null;
+  return_pct: number | null;
+}
+
+export interface InsiderBuy {
+  insider: string;
+  role: string;
+  date: string | null;
+  filed_at: string | null;
+  value_usd: number;
+  shares: number;
+  avg_price: number | null;
+  position_increase_pct: number | null; // -1 = brand-new position
+  company_insider: boolean;
+  alerted: boolean;
+}
+
+export interface InsiderGroup {
+  ticker: string;
+  company: string;
+  total_usd: number;
+  last_date: string | null;
+  n_insiders: number;
+  buys: InsiderBuy[];
 }
 
 export interface TradeFilters {
@@ -190,8 +267,8 @@ export const api = {
   kpis: () => getJSON<Kpis>("/kpis"),
   trades: (filters: TradeFilters = {}) =>
     getJSON<TradeListResponse>(`/trades${qs(filters)}`),
-  ranking: (sortBy = "total_return_pct", limit = 100) =>
-    getJSON<MemberRanking[]>(`/members/ranking${qs({ sort_by: sortBy, limit })}`),
+  ranking: (sortBy = "total_return_pct", limit = 100, minTrades = 0) =>
+    getJSON<MemberRanking[]>(`/members/ranking${qs({ sort_by: sortBy, limit, min_trades: minTrades })}`),
   member: (matchKey: string) => getJSON<Member>(`/members/${matchKey}`),
   memberTrades: (matchKey: string, limit = 500) =>
     getJSON<MemberTrade[]>(`/members/${matchKey}/trades${qs({ limit })}`),
@@ -200,7 +277,11 @@ export const api = {
   ticker: (ticker: string) => getJSON<TickerSummary>(`/tickers/${ticker}`),
   tickerPrices: (ticker: string, days = 180) =>
     getJSON<PricePoint[]>(`/tickers/${ticker}/prices${qs({ days })}`),
-  polymarketWhaleBets: (limit = 50) =>
-    getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit })}`),
+  polymarketWhaleBets: (limit = 50, days = 7, category?: PolymarketCategory) =>
+    getJSON<PolymarketAlert[]>(`/polymarket/whale-bets${qs({ limit, days, category })}`),
+  insiders: (days = 60, onlyRelevant = true) =>
+    getJSON<InsiderGroup[]>(`/insiders${qs({ days, only_relevant: onlyRelevant })}`),
+  setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),
+  macro: () => getJSON<MacroSnapshot>("/macro"),
   tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
 };
