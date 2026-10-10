@@ -1,0 +1,11 @@
+name: probe-tmp
+on:
+  push:
+    branches: [claude/project-thread-qxdy5j]
+    paths: [backend/tools/probe_pm.py, .github/workflows/probe-tmp.yml]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install requests && python backend/tools/probe_pm.py
