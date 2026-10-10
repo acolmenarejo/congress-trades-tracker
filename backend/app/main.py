@@ -208,8 +208,14 @@ def get_setup_signals(db: Session = Depends(get_db)):
 
     out = []
     for sig in db.query(SetupSignal).order_by(SetupSignal.signal_date.desc()).limit(100):
-        bars = prices.get_price_series(db, sig.ticker, sig.signal_date - timedelta(days=5), date.today())
-        res = setups.evaluate_signal(bars, sig)
+        if sig.outcome and sig.exit_price:
+            # Resolved by setups.yml: stored, so no price fetch per request
+            # (keeps this inside Vercel's function time limit as signals pile up).
+            res = {"status": sig.outcome, "exit_date": sig.exit_date, "exit_price": sig.exit_price, "bars": None,
+                   "last_close": None, "return_pct": (sig.exit_price / sig.entry - 1) * 100}
+        else:
+            bars = prices.get_price_series(db, sig.ticker, sig.signal_date - timedelta(days=5), date.today())
+            res = setups.evaluate_signal(bars, sig)
         out.append({
             "ticker": sig.ticker,
             "kind": sig.direction,  # long (score >= 70) | breakout

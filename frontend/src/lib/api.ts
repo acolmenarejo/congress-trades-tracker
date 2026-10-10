@@ -149,7 +149,7 @@ export interface SetupSignal {
   status: "open" | "target" | "stop" | "time";
   exit_date: string | null;
   exit_price: number | null;
-  bars: number;
+  bars: number | null;
   last_close: number | null;
   return_pct: number | null;
 }

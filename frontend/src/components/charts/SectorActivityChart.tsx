@@ -33,11 +33,11 @@ export default function SectorActivityChart({ trades, dark }: { trades: Trade[];
       <p className="mb-3 text-xs text-ink/50 dark:text-slate-400">
         Trades sobre tickers de sectores con jurisdicción de comité reconocida (ver Feed).
       </p>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={Math.max(220, data.length * 28 + 40)}>
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
           <CartesianGrid stroke={colors.grid} horizontal={false} />
           <XAxis type="number" tick={{ fill: colors.textMuted, fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
-          <YAxis type="category" dataKey="sector" tick={{ fill: colors.textSecondary, fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
+          <YAxis type="category" dataKey="sector" interval={0} tick={{ fill: colors.textSecondary, fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
           <Tooltip contentStyle={{ background: colors.surface, border: `1px solid ${colors.grid}`, fontSize: 12 }} />
           <Bar dataKey="count" fill={colors.series1} radius={[0, 4, 4, 0]} />
         </BarChart>

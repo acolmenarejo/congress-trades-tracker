@@ -91,3 +91,25 @@ def init_db():
     # LIVE_DB_PATH and we'd serve that.
     ensure_fresh_db()
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
+
+
+# create_all() never alters existing tables, and the committed SQLite predates
+# some columns. (table, column, SQL type) — add here when a model grows one.
+_ADDED_COLUMNS = [
+    ("setup_signals", "exit_date", "DATE"),
+    ("setup_signals", "exit_price", "FLOAT"),
+]
+
+
+def _add_missing_columns() -> None:
+    from sqlalchemy import inspect, text
+
+    try:
+        insp = inspect(engine)
+        with engine.begin() as conn:
+            for table, col, typ in _ADDED_COLUMNS:
+                if insp.has_table(table) and col not in {c["name"] for c in insp.get_columns(table)}:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
+    except Exception:
+        logger.exception("db: could not add missing columns (read-only?)")

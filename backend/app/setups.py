@@ -681,13 +681,14 @@ def scan_and_alert(db) -> dict:
     tickers, events = universe(db)
     score_universe = set(tickers)
     breakout_set = set(breakout_universe(db))
-    tickers += sorted(breakout_set - score_universe)
+    open_signals = {s.ticker: s for s in db.query(SetupSignal).filter(SetupSignal.outcome.is_(None))}
+    # Open signals are always re-checked, even if their ticker left both lists.
+    tickers += sorted((breakout_set | set(open_signals)) - score_universe)
     start, end = date.today() - timedelta(days=560), date.today()
     spy_bars = prices._fetch_from_yahoo("SPY", start, end)
     spy = {b["date"]: b["close"] for b in spy_bars}
     last_session = spy_bars[-1]["date"] if spy_bars else None
 
-    open_signals = {s.ticker: s for s in db.query(SetupSignal).filter(SetupSignal.outcome.is_(None))}
     recent = {
         s.ticker
         for s in db.query(SetupSignal).filter(SetupSignal.signal_date >= date.today() - timedelta(days=COOLDOWN_DAYS))
@@ -702,7 +703,8 @@ def scan_and_alert(db) -> dict:
         if tk in open_signals:
             res = evaluate_signal(bars, open_signals[tk])
             if res["status"] != "open":
-                open_signals[tk].outcome = res["status"]
+                sig = open_signals[tk]
+                sig.outcome, sig.exit_date, sig.exit_price = res["status"], res["exit_date"], res["exit_price"]
                 resolved.append((open_signals[tk], res))
         if not bars or bars[-1]["date"] != last_session or tk in recent:
             continue

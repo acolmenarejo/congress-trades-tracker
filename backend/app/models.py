@@ -237,6 +237,8 @@ class SetupSignal(Base):
     target = Column(Float, nullable=False)
     reasons = Column(String, nullable=True)
     outcome = Column(String, nullable=True)  # target | stop | time — filled in later
+    exit_date = Column(Date, nullable=True)
+    exit_price = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 
