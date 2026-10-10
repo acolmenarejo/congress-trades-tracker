@@ -30,6 +30,8 @@ jobs:
 
       - name: Fetch FRED and Yahoo series
         working-directory: backend/macro
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python fetch_macro.py
 
       - name: Commit updated database

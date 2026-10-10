@@ -193,8 +193,10 @@ y revisión general de mejoras de frontend.
   porque el `schedule:` de GitHub llega con horas de retraso). También con
   `/resumen`. Secciones: Congreso, directivos, señales abiertas, macro y
   Polymarket (`EXTRA_SECTIONS`).
-- `app/macro.py` + `macro.yml` (diario): series de FRED vía `fredgraph.csv`
-  (sin clave) y ^MOVE/^VIX de Yahoo en `macro_points`. `/macro` y la página
+- `app/macro.py` + `macro.yml` (diario): series de FRED vía su API (secreto
+  `FRED_API_KEY`, gratis) y ^MOVE/^VIX de Yahoo en `macro_points`. Sin clave
+  usa `fredgraph.csv`, pero ese host bloquea muchos runners de GitHub
+  (reset HTTP/2 o lectura colgada; el 2026-10-10 fallaron las 11 series). `/macro` y la página
   Macro solo leen. Lecturas y "qué implica" por reglas fijas habituales del
   mercado (no ajustadas).
 - `app/polymarket_macro.py` (cada hora, dentro de `polymarket.yml`): saca de
@@ -205,7 +207,9 @@ y revisión general de mejoras de frontend.
   el bono a 2 años y el high yield y avisa si no cuadran (página Macro y
   resumen diario). También trae las mismas preguntas de **Kalshi** (API
   pública sin clave: series KXFEDDECISION, KXFEDHIKE, KXRECSSNBER, KXCPIYOY;
-  series `KS_*`) y avisa si difieren ≥ 15 puntos de Polymarket. Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
+  series `KS_*`) y avisa si difieren ≥ 15 puntos de Polymarket. `polymarket.yml`
+  lo lanza también el trigger de Vercel a los minutos 25-26 (el `schedule:`
+  llegaba cada 3-9 h); input `hours` para recargar horas pasadas sin Telegram. Unidades: WALCL, WTREGEN y WRESBAL vienen en millones (se
   dividen entre 1000), RRPONTSYD en miles de millones. FRED cuelga las
   peticiones con User-Agent de navegador: no usar uno.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
