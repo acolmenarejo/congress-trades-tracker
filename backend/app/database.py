@@ -50,6 +50,7 @@ def ensure_fresh_db() -> None:
                     f.write(resp.content)
                 # Atomic swap: sessions already open keep reading the old file.
                 os.replace(tmp, LIVE_DB_PATH)
+                _add_missing_columns()  # the pushed copy may predate a new column
                 _etag = resp.headers.get("ETag")
                 logger.info("live db: refreshed from GitHub (%d bytes)", len(resp.content))
             elif resp.status_code != 304:
