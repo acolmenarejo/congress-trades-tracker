@@ -155,9 +155,9 @@ def score_trade(usd: float, price: float, hours_to_end: float | None, wallet_mar
     return round(pts, 1), reasons
 
 
-def _recent_big_trades(since_ts: int) -> list[dict]:
+def _recent_big_trades(since_ts: int, max_pages: int = MAX_PAGES) -> list[dict]:
     out: list[dict] = []
-    for page in range(MAX_PAGES):
+    for page in range(max_pages):
         try:
             rows = _get(f"{DATA_BASE}/trades", {
                 "filterType": "CASH", "filterAmount": MIN_CHUNK_USD, "takerOnly": "true",
@@ -216,11 +216,13 @@ def _hours_to_end(m: dict, now: datetime) -> float | None:
         return None
 
 
-def scan(db: Session) -> dict:
+def scan(db: Session, backfill_hours: int = 0) -> dict:
     now = datetime.now(timezone.utc)
     st = db.get(TelegramState, STATE_KEY)
     since = int(st.value) if st and st.value else int(now.timestamp()) - 6 * 3600
-    trades = _recent_big_trades(since)
+    if backfill_hours:
+        since = min(since, int(now.timestamp()) - backfill_hours * 3600)
+    trades = _recent_big_trades(since, max(MAX_PAGES, backfill_hours // 2))
     stats = {"big_trades": len(trades), "stored": 0}
     if not trades:
         return stats

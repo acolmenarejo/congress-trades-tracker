@@ -325,4 +325,12 @@ def trigger_poll(secret: str = Query(...)):
     status_code = _dispatch_workflow("bot-poll.yml")
     if status_code >= 300:
         raise HTTPException(status_code=502, detail=f"GitHub dispatch failed: {status_code}")
+    # GitHub's hourly schedule for polymarket.yml arrives hours late, so this
+    # pinger also starts it once an hour. Two minutes wide because pings come
+    # every 1-2 min; a double start just queues behind the workflow's concurrency.
+    if datetime.utcnow().minute in (25, 26):
+        try:
+            _dispatch_workflow("polymarket.yml")
+        except requests.RequestException:
+            pass  # bot-poll already started; the scan catches up next hour
     return {"status": "dispatched"}
