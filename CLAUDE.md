@@ -230,7 +230,22 @@ y revisión general de mejoras de frontend.
   `telegram_state` `kalshi_expect`. `macro.kalshi_view` les pone estado
   (vigilar/tensión) y entran en `notify_changes` y el resumen diario. Las
   operaciones de Kalshi son anónimas y pequeñas (máx. ~20k $ en 72 h): no
-  sirven para detectar info privilegiada, no intentarlo.
+  sirven para detectar info privilegiada, no intentarlo. Desde 2026-10-11
+  también gasolina y diésel de la semana, OER/vivienda del IPC, IPC
+  combinado, reserva estratégica, emergencias PJM, DDR5, gas natural y Brent.
+- `app/kalshi_company.py` (2026-10-11, en `polymarket.yml`): mercados de
+  Kalshi sobre los KPI y la conferencia de resultados de cada empresa que
+  compran congresistas (365 d) o directivos (180 d). Series `KX{T}`,
+  `KX{T}A` (tags KPIs/Headcount) y `KXEARNINGSMENTION{T}` (tag Earnings);
+  los eventos ya decididos (todo a 99%/1%) se descartan. JSON en
+  `telegram_state` `kalshi_company`; `/tickers/{t}/kalshi` y
+  `KalshiCompanyCard` en la ficha. "Dato flojo" solo en cifras de
+  crecimiento con < 50% de ser positivas: las escalas de Kalshi no están
+  centradas en el consenso (usarlas así marcaba a una de cada cuatro).
+- `app/kalshi_watch.py`: Telegram si un mercado macro o KPI se mueve ≥ 15
+  puntos en 24 h (`previous_price_dollars`), con filtros: no cierra en < 3
+  días, ≥ 500 contratos, horquilla ≤ 10 pts, sin gasolina/diésel semanal ni
+  apuestas de palabras; 1 aviso por mercado cada 3 días.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).

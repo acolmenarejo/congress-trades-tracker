@@ -189,6 +189,15 @@ def get_ticker_earnings(ticker: str, db: Session = Depends(get_db)):
     return crud.get_earnings_dates(db, ticker)
 
 
+@app.get("/tickers/{ticker}/kalshi")
+def get_ticker_kalshi(ticker: str, db: Session = Depends(get_db)):
+    """Kalshi markets on this company's next KPIs and earnings call (see
+    app/kalshi_company.py). Refreshed hourly by polymarket.yml; [] if none."""
+    from .kalshi_company import load
+
+    return load(db).get(ticker.upper(), [])
+
+
 @app.get("/macro")
 def get_macro(db: Session = Depends(get_db)):
     """Rates, bond volatility, credit and liquidity plumbing with a reading

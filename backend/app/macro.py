@@ -628,7 +628,12 @@ def kalshi_view(db: Session, s: dict[str, _S]) -> list[dict]:
     labels = {"payrolls": "Empleo (próximo informe)", "u3": "Paro (próximo dato)", "gdp": "PIB del trimestre",
               "cpi": "Inflación del mes (IPC)", "pce": "Inflación PCE del mes", "fed1": "Tipo de la Fed (2 próximas reuniones)",
               "recession_next": "Recesión el año que viene", "spx": "S&P 500 a fin de año",
-              "wti_high": "Petróleo antes de fin de año"}
+              "wti_high": "Petróleo antes de fin de año", "gas": "Gasolina en EE. UU. (esta semana)",
+              "diesel": "Diésel en EE. UU. (esta semana)", "cpicombo": "IPC: general y subyacente juntos",
+              "oer": "Alquiler imputado del IPC (OER)", "shelter": "Vivienda del IPC (shelter)",
+              "spr": "Reserva estratégica de petróleo", "pjm": "Emergencias en la red eléctrica PJM",
+              "ddr5": "Precio de la memoria DDR5", "natgas": "Gas natural a fin de mes",
+              "brent": "Brent a fin de mes"}
 
     def add(key, series, value, status, reading, action, delta=None, delta_label=None):
         m = meta.get(key.upper()) or {}
@@ -720,4 +725,49 @@ def kalshi_view(db: Session, s: dict[str, _S]) -> list[dict]:
             + (f" y un {_pct(lo.last)} a que baje de ${lo_lvl}." if lo.ok else "."),
             "Riesgo de shock de petróleo: favorece energía (XLE) y perjudica aerolíneas, transporte y consumo; empuja la inflación."
             if st != "ok" else "Sin shock de petróleo descontado.", wk("KS_WTI_HIGH", 100), "pp en 7 días")
+
+    def wk_pct(sid):
+        x = s[sid]
+        old = x.ago(7)
+        return None if not old else round((x.last / old - 1) * 100, 1)
+
+    for key, sid, unit in (("gas", "KS_GAS_MED", "galón"), ("diesel", "KS_DIESEL_MED", "galón")):
+        x = s[sid]
+        if x.ok:
+            chg = wk_pct(sid)
+            st = _tier(chg, 3, 6)
+            add(key, None, f"${x.last:.2f}/{unit}" + (f" ({chg:+.1f}% en 7 días)" if chg is not None else ""), st,
+                f"El mercado sitúa el precio medio (AAA) de esta semana en ${x.last:.2f} por {unit}.",
+                "Subida rápida del combustible: empuja el IPC del mes, aprieta al consumidor y a aerolíneas y transporte; favorece refino y energía."
+                if st not in (None, "ok") else "Sin subida brusca del combustible esta semana.", chg, "% en 7 días")
+    combo = s["KS_CPICOMBO_TOP"]
+    if combo.ok:
+        lab = (meta.get("CPICOMBO") or {}).get("label") or ""
+        for a, b in (("Headline", "general"), ("Core", "subyacente"), ("or above", "o más"), ("or below", "o menos"),
+                     ("Exactly ", ""), (",", " ·")):
+            lab = lab.replace(a, b)
+        add("cpicombo", None, f"{lab} ({_pct(combo.last)})", None,
+            f"La combinación más probable del próximo IPC es «{lab}», con un {_pct(combo.last)}.",
+            "Si la general sube mucho más que la subyacente, la inflación viene de la energía: la Fed suele mirar la subyacente."
+            if "general: 0.5% o más" in lab or "general 0.5% o más" in lab else
+            "Compara general y subyacente: la Fed reacciona sobre todo a la subyacente.", None, None)
+    for key, sid, fmt, read, act in (
+        ("oer", "KS_OER_MED", "índice {v:.1f}", "El mercado espera el índice de alquiler imputado (OER) en torno a {v:.1f}.",
+         "Es la partida que más pesa en el IPC: si no baja, la subyacente se queda alta y la Fed no recorta."),
+        ("shelter", "KS_SHELTER_MED", "índice {v:.1f}", "El mercado espera el índice de vivienda del IPC en torno a {v:.1f}.",
+         "La vivienda es un tercio del IPC: si se mantiene, frena las bajadas de tipos."),
+        ("spr", "KS_SPR_MED", "{v:.0f} M barriles", "El mercado espera la reserva estratégica en unos {v:.0f} millones de barriles esta semana.",
+         "Si cae rápido, el Gobierno está soltando petróleo para frenar precios: señal de tensión en energía."),
+        ("pjm", "KS_PJM_MED", "{v:.0f} días", "El mercado espera unos {v:.0f} días de emergencia de capacidad en PJM, la red que alimenta los centros de datos de Virginia.",
+         "Más emergencias suben los precios de capacidad: favorece a generadoras (Constellation, Vistra, Talen) y encarece la IA."),
+        ("ddr5", "KS_DDR5_MED", "${v:.2f}", "El mercado espera un precio medio de la DDR5 de 16 Gb de ${v:.2f} este mes.",
+         "Memoria al alza favorece a Micron, Samsung y SK Hynix; a la baja, señal de que se enfría la demanda."),
+        ("natgas", "KS_NATGAS_MED", "${v:.2f}", "El mercado sitúa el gas natural a fin de mes en ${v:.2f}.",
+         "Gas caro encarece la electricidad y la industria; favorece a productores (EQT, Expand)."),
+        ("brent", "KS_BRENT_MED", "${v:.0f}", "El mercado sitúa el Brent a fin de mes en ${v:.0f}.",
+         "Brent alto empuja la inflación y castiga aerolíneas y consumo; favorece energía."),
+    ):
+        x = s[sid]
+        if x.ok:
+            add(key, None, fmt.format(v=x.last), None, read.format(v=x.last), act, wk_pct(sid), "% en 7 días")
     return rows

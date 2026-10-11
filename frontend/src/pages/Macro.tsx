@@ -150,8 +150,9 @@ function KalshiBlock({ rows }: { rows: KalshiExpectation[] }) {
       <h3 className="font-serif text-lg font-semibold">Lo que descuenta Kalshi</h3>
       <p className="mb-3 text-xs text-ink/50 dark:text-slate-400">
         Previsiones con dinero real que en Polymarket no tienen liquidez: empleo, paro, PIB, inflación del mes,
-        tipos de la Fed, recesión el año que viene, S&amp;P 500 a fin de año y picos del petróleo. Las que tienen
-        estado avisan por Telegram cuando cambian.
+        tipos de la Fed, recesión el año que viene, S&amp;P 500 a fin de año, petróleo, gasolina y diésel de la
+        semana, vivienda del IPC, reserva estratégica, red eléctrica PJM y memoria DDR5. Las que tienen estado
+        avisan por Telegram cuando cambian, y cualquier mercado que se mueva 15 puntos en un día también.
       </p>
       <ul className="grid gap-2 md:grid-cols-2">
         {rows.map((r) => (
