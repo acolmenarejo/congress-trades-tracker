@@ -227,7 +227,7 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
     if stock:
         name = ctx.company_name(db, stock) or stock
         query = f'"{name}" OR {stock}' if name != stock else f"{stock} stock"
-    nl, has_news = ctx.news_lines(ctx.news(query) if query else None)
+    nl, has_news = ctx.news_lines(ctx.news(query) if query else None, business_only=bool(stock))
     points = abs(r["p"] - r["prev"]) * 100
     level = ctx.impact(points, r["ev_oi"], watched, _days_to(r["close"], now), core)
     arrow = "⬆️" if r["p"] > r["prev"] else "⬇️"

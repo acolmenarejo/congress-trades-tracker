@@ -105,10 +105,23 @@ def news(query: str, hours: int = NEWS_HOURS) -> list[dict] | None:
     return sorted(out, key=lambda x: x["hours"])
 
 
-def news_lines(items: list[dict] | None) -> tuple[list[str], bool | None]:
-    """Lines for the alert, and whether there was public news (None = unknown)."""
+# A promo ("free pizza on game day") is not news that moves a KPI bet.
+BUSINESS = re.compile(
+    r"earnings|results|quarter|revenue|sales|profit|guidance|outlook|forecast|analyst|downgrade|upgrade|"
+    r"price target|shares|stock|deliver|orders|layoff|job cuts|ceo|cfo|merger|acqui|lawsuit|sec |probe|"
+    r"recall|tariff|strike|bankrupt|dividend|buyback|traffic|comparable|same-store|subscribers|users",
+    re.I,
+)
+
+
+def news_lines(items: list[dict] | None, business_only: bool = False) -> tuple[list[str], bool | None]:
+    """Lines for the alert, and whether there was public news (None = unknown).
+    business_only drops headlines with nothing about the business (company
+    queries pull in promos and sports sponsorships)."""
     if items is None:
         return ["📰 No he podido comprobar las noticias."], None
+    if business_only:
+        items = [x for x in items if BUSINESS.search(x["title"])]
     if not items:
         return [f"🕵️ <b>Sin noticias en {NEWS_HOURS} h.</b> Puede que el mercado sepa algo que aún no se ha publicado, o que sea ruido."], False
     top = items[0]
