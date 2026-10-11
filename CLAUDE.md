@@ -246,6 +246,20 @@ y revisión general de mejoras de frontend.
   puntos en 24 h (`previous_price_dollars`), con filtros: no cierra en < 3
   días, ≥ 500 contratos, horquilla ≤ 10 pts, sin gasolina/diésel semanal ni
   apuestas de palabras; 1 aviso por mercado cada 3 días.
+- Duplicados (2026-10-11): el trigger de Vercel lanza `polymarket.yml` en los
+  minutos 25 y 26; la segunda ejecución esperaba en `concurrency` pero hacía
+  checkout del commit con el que se lanzó (DB vieja, sin el "ya avisado") y
+  reenviaba avisos. Por eso los workflows que avisan hacen checkout con
+  `ref: master`. `bot-poll.yml` tiene `concurrency` y el bot confirma los
+  updates a Telegram nada más leerlos (si no, dos ejecuciones contestaban
+  /resumen).
+- `app/alert_context.py`: contexto común de avisos: noticias de Google News
+  RSS (48 h; para empresas solo titulares de negocio, una promo no cuenta),
+  impacto alto/medio/bajo, sector de la watchlist, enlaces a la web y
+  `split_message` (Telegram corta a 4096 caracteres visibles).
+  `kalshi_watch` manda un mensaje por evento (no por escalón; enfriamiento de
+  3 días por evento, máx. 4 por ejecución) con qué implica y qué hacer. El
+  resumen diario empieza por la watchlist y trae un bloque de liquidez.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).
