@@ -1,7 +1,7 @@
 name: probe-tmp
 on:
   push:
-    branches: [claude/project-thread-qxdy5j]
+    branches: [claude/alerts-no-duplicates]
 jobs:
   probe:
     runs-on: ubuntu-latest
