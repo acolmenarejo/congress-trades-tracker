@@ -31,6 +31,12 @@ if __name__ == "__main__":
         notify(db)
         from app import alert_track  # noqa: E402
 
-        alert_track.settle(db, ("insider",))  # 30/90-day returns of past alerts
+        try:
+            from app import edgar_flags  # noqa: E402
+
+            edgar_flags.scan(db)  # 10-K delays, restatements, auditor changes on the watchlist
+        except Exception:
+            logging.exception("edgar_flags failed")
+        alert_track.settle(db, ("insider", "edgar_flag"))  # 30/90-day returns of past alerts
     finally:
         db.close()

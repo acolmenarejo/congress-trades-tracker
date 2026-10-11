@@ -108,7 +108,7 @@ def settle(db: Session, sources: tuple[str, ...]) -> int:
             row.status = _polymarket_result(row.ref) or "open"
         elif row.source == "kalshi":
             row.status = _kalshi_result(row.ticker, row.direction) or "open"
-        elif row.source == "insider":
+        elif row.source in ("insider", "edgar_flag"):
             try:
                 _insider_returns(db, row)
             except Exception:
@@ -138,9 +138,13 @@ def summary_lines(db: Session) -> list[str]:
         exp = sum(r.price0 if src == "polymarket" else (r.price0 if r.direction == "yes" else 1 - r.price0) for r in done)
         note = "" if len(done) >= MIN_SAMPLE else f" · muestra pequeña (se concluye con ≥{MIN_SAMPLE})"
         out.append(f"  • {name}: {wins}/{len(done)} acertadas, el precio implicaba {exp:.1f}{note}")
-    ins = [r for r in rows if r.source == "insider" and r.ret30 is not None and r.bench30 is not None]
-    if ins:
-        ex = [r.ret30 - r.bench30 for r in ins]
-        note = "" if len(ins) >= MIN_SAMPLE else f" · muestra pequeña (se concluye con ≥{MIN_SAMPLE})"
-        out.append(f"  • Directivos a 30 días: {_pct(sum(ex) / len(ex))} de media sobre el S&P ({len(ins)} compras){note}")
+    groups = (("insider", "Directivos", None), ("insider", "Directivos atípicos", "opportunistic"),
+              ("insider", "Directivos de rutina", "routine"), ("edgar_flag", "Alarmas EDGAR (si baja, acierta)", None))
+    for src, name, pat in groups:
+        sel = [r for r in rows if r.source == src and r.ret30 is not None and r.bench30 is not None
+               and (pat is None or r.direction == pat)]
+        if sel:
+            ex = [r.ret30 - r.bench30 for r in sel]
+            note = "" if len(sel) >= MIN_SAMPLE else f" · muestra pequeña (se concluye con ≥{MIN_SAMPLE})"
+            out.append(f"  • {name} a 30 días: {_pct(sum(ex) / len(ex))} de media sobre el S&P ({len(sel)} casos){note}")
     return (["📏 <b>Acierto real de los avisos</b>"] + out) if out else []

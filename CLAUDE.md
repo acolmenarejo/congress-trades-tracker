@@ -269,6 +269,17 @@ y revisión general de mejoras de frontend.
   concluye con < 20 casos. Revisar a los 2-3 meses y quitar el aviso que no
   supere al precio. `polymarket.yml` liquida polymarket/kalshi e `insiders.yml`
   los directivos; cada uno hace merge solo de su `source`.
+- `app/insider_pattern.py` (2026-10-11): etiqueta cada compra de directivo como
+  "atípica" o "de rutina" (Cohen, Malloy y Pomorski 2012, de memoria) usando
+  las fechas de sus Form 4 en `data.sec.gov/submissions`: rutina = presentó
+  algo en ese mismo mes los 3 años anteriores. Solo etiqueta, no filtra; el
+  acierto de cada etiqueta se mide en `alert_outcomes.direction`. Aproximación
+  tosca: quien presenta Form 4 cada mes (JPM) sale siempre "rutina".
+  `app/edgar_flags.py`: alarma por Telegram si una acción de la watchlist
+  presenta NT 10-K/10-Q, 8-K 4.02 (cuentas no fiables), 4.01 (auditor), 1.03
+  (quiebra) o 3.01 (puede ser un simple cambio de bolsa, ojo con DPZ dic-2024).
+  Corre en `insiders.yml`; estado en `telegram_state` `insiders_flags_sent`;
+  se mide como `edgar_flag` (retorno a 30/90 días contra SPY).
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).
