@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from .alert_context import WEB, split_message
 from .models import InsiderTrade, SetupSignal, TelegramState, TelegramSubscriber, TelegramWatch, Trade
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,10 @@ def congress_lines(db: Session, since: datetime) -> list[str]:
     top = sorted(buys, key=lambda t: -(t.amount_mid or 0))[:TOP_N]
     for t in top:
         star = "⭐ " if t.member_match_key in watched_members or t.ticker in watched_tickers else ""
-        lines.append(f"  • {star}{e(t.member_name)} compró <b>{e(t.ticker or '?')}</b> · {_usd(t.amount_mid)}")
+        lines.append(f"  • {star}🟢 {e(t.member_name)} compró {_tk(t.ticker)} · {_usd(t.amount_mid)}")
     big_sales = sorted([t for t in new if t.transaction_type == "sale" and (t.amount_mid or 0) >= 250_000], key=lambda t: -(t.amount_mid or 0))
     for t in big_sales[:2]:
-        lines.append(f"  • {e(t.member_name)} vendió <b>{e(t.ticker or '?')}</b> · {_usd(t.amount_mid)}")
+        lines.append(f"  • 🔻 {e(t.member_name)} vendió {_tk(t.ticker)} · {_usd(t.amount_mid)}")
     return lines
 
 
@@ -65,9 +66,14 @@ def insider_lines(db: Session, since: datetime) -> list[str]:
     lines = [f"🏢 <b>Directivos:</b> {len(groups)} empresas con compras relevantes"]
     for tk, ts in sorted(groups.items(), key=lambda kv: -sum(t.value_usd for t in kv[1]))[:TOP_N]:
         n = len({t.insider_cik for t in ts})
-        lines.append(f"  • <b>{e(tk)}</b> · {n} directivo{'s' if n > 1 else ''} · {_usd(sum(t.value_usd for t in ts))}")
+        lines.append(f"  • 🟢 {_tk(tk)} · {n} directivo{'s' if n > 1 else ''} · {_usd(sum(t.value_usd for t in ts))}")
     return lines
 
+
+def _tk(t: str | None) -> str:
+    if not t:
+        return "<b>?</b>"
+    return f'<a href="{WEB}/tickers/{e(t)}"><b>{e(t)}</b></a>'
 
 def _who(ctx: dict) -> str:
     people = [f"{e(c['name'])} (congresista, {c['date']:%d/%m}, {_usd(c['amount'])})" for c in ctx["congress"][:2]]
@@ -83,20 +89,21 @@ def signal_lines(db: Session) -> list[str]:
     open_ = db.query(SetupSignal).filter(SetupSignal.outcome.is_(None)).order_by(SetupSignal.signal_date).all()
     if not open_:
         return []
-    lines = ["📈 <b>Señales técnicas en curso</b> <i>(avisos del bot que aún no han tocado objetivo ni stop)</i>"]
+    lines = ["📈 <b>Señales técnicas abiertas</b> <i>(aún sin tocar objetivo ni stop)</i>"]
     for s in open_:
         bars = prices.get_price_series(db, s.ticker, s.signal_date - timedelta(days=5), date.today())
         res = setups.evaluate_signal(bars, s)
         ret = f"{res['return_pct']:+.1f}%" if res["return_pct"] is not None else "?"
         kind = "ruptura" if s.direction == "breakout" else f"nota {s.score:.0f}/100"
         days = (date.today() - s.signal_date).days
-        lines.append(f"  • <b>{e(s.ticker)}</b> · {kind} · aviso del {s.signal_date:%d/%m} (hace {days} días) · va {ret}")
-        lines.append(f"    Entrada {setups._fmt_price(s.entry)} → objetivo {setups._fmt_price(s.target)} / stop {setups._fmt_price(s.stop)}")
+        icon = "✅" if (res["return_pct"] or 0) > 0 else "⚠️"
+        lines.append(f"  • {icon} {_tk(s.ticker)} · {kind} · aviso del {s.signal_date:%d/%m} (hace {days} días) · va <b>{ret}</b>")
+        lines.append(f"    🎯 Entrada {setups._fmt_price(s.entry)} → objetivo {setups._fmt_price(s.target)} · 🛑 stop {setups._fmt_price(s.stop)}")
         reasons = [r for r in (s.reasons or "").split(" | ") if r][:2]
         if reasons:
-            lines.append(f"    Por qué: {e('; '.join(reasons))}")
+            lines.append(f"    💡 {e('; '.join(reasons))}")
         who = _who(setups.signal_context(db, s.ticker, s.signal_date))
-        lines.append(f"    Compraron antes: {who}" if who else "    Sin compras de congresistas ni directivos en los 90 días previos")
+        lines.append(f"    👥 Compraron antes: {who}" if who else "    👥 Sin compras de congresistas ni directivos en los 90 días previos")
     return lines
 
 
@@ -106,8 +113,9 @@ SECTIONS = [congress_lines, insider_lines]
 def build(db: Session, now: datetime | None = None) -> str:
     now = now or datetime.utcnow()
     since = now - timedelta(hours=24)
-    lines = [f"📰 <b>Resumen diario</b> · {now:%d/%m}", ""]
-    for section in SECTIONS:
+    days = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+    lines = [f"📰 <b>Resumen diario</b> · {days[now.weekday()]} {now:%d/%m}", ""]
+    for section in (watchlist_lines, *SECTIONS):
         try:
             lines += section(db, since) + [""]
         except Exception:
@@ -119,14 +127,56 @@ def build(db: Session, now: datetime | None = None) -> str:
                 lines += got + [""]
         except Exception:
             logger.exception("digest: section %s failed", extra.__name__)
-    lines.append("<i>Las alertas instantáneas siguen llegando aparte · /resumen para pedirlo</i>")
+    lines.append(f'🔗 <a href="{WEB}">Web</a> · <a href="{WEB}/watchlist">Watchlist</a> · '
+                 f'<a href="{WEB}/macro">Macro</a> · <a href="{WEB}/directivos">Directivos</a>')
+    lines.append("<i>Las alertas instantáneas llegan aparte · /resumen para pedirlo</i>")
     return "\n".join(lines)
+
+
+def watchlist_lines(db: Session, since: datetime) -> list[str]:
+    """What happened today to the tickers on the watchlist, one line each."""
+    from . import alert_context, kalshi_company
+
+    wl = sorted(alert_context.watchlist(db))
+    if not wl:
+        return []
+    kalshi = kalshi_company.load(db)
+    out = []
+    for tk in wl:
+        bits = []
+        for t in db.query(Trade).filter(Trade.ticker == tk, Trade.created_at >= since,
+                                        Trade.transaction_type.in_(["purchase", "sale"])):
+            verb = "🟢 compra" if t.transaction_type == "purchase" else "🔻 venta"
+            bits.append(f"{verb} de {e(t.member_name)} ({_usd(t.amount_mid)})")
+        ins = db.query(InsiderTrade).filter(InsiderTrade.ticker == tk, InsiderTrade.detected_at >= since).count()
+        if ins:
+            bits.append(f"🏢 {ins} compra{'s' if ins > 1 else ''} de directivos")
+        sig = db.query(SetupSignal).filter(SetupSignal.ticker == tk, SetupSignal.outcome.is_(None)).first()
+        if sig:
+            bits.append("📈 señal técnica abierta")
+        for ev in kalshi.get(tk, [])[:2]:
+            if ev.get("kind") == "kpi" and ev.get("median_label") and "headcount" not in (ev.get("title") or "").lower():
+                flag = " ⚠️ dato flojo" if ev.get("lean") == "weak" else ""
+                bits.append(f"🔮 Kalshi espera {e(ev['median_label'])} en «{e(ev['title'])}»{flag}")
+        earn = alert_context.next_earnings(db, tk)
+        if earn and (earn - now_date()).days <= 14:
+            bits.append(f"📅 resultados el {earn:%d/%m}")
+        if bits:
+            out.append(f"  • {_tk(tk)}: " + " · ".join(bits))
+    head = f"⭐ <b>Tu watchlist</b> ({len(wl)} acciones)"
+    if not out:
+        return [head, "  Sin novedades hoy en tus acciones."]
+    return [head] + out
+
+
+def now_date() -> date:
+    return datetime.utcnow().date()
 
 
 def macro_lines(db: Session) -> list[str]:
     from . import macro
 
-    return macro.digest_lines(db)
+    return macro.digest_lines(db, detailed=True)
 
 
 def polymarket_lines(db: Session) -> list[str]:
@@ -151,7 +201,8 @@ def maybe_send(db: Session, now: datetime | None = None) -> bool:
         return False
     body = build(db, now)
     for s in db.query(TelegramSubscriber).all():
-        send_message(s.chat_id, body)
+        for part in split_message(body):
+            send_message(s.chat_id, part)
     db.merge(TelegramState(key=STATE_KEY, value=today))
     db.commit()
     logger.info("digest: sent for %s", today)

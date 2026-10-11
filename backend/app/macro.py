@@ -525,31 +525,69 @@ def polymarket_view(db: Session, s: dict[str, _S]) -> dict:
     }
 
 
-def digest_lines(db: Session) -> list[str]:
+_ICON = {"ok": "🟢", "watch": "🟡", "stress": "🔴"}
+_LIQUIDITY = ("netliq", "reserves", "sofr")
+
+
+def liquidity_take(by: dict) -> str:
+    """One sentence on what the plumbing means for stocks right now."""
+    net, res, sofr = by.get("netliq"), by.get("reserves"), by.get("sofr")
+    bad = [i for i in (net, res, sofr) if i and i["status"] == "stress"]
+    watch = [i for i in (net, res, sofr) if i and i["status"] == "watch"]
+    if bad:
+        return ("Falta liquidez en el sistema: es cuando caen a la vez bolsa y bonos. "
+                "Reduce apalancamiento y posiciones especulativas; prioriza caja y calidad.")
+    if watch:
+        return ("La liquidez no empuja ni frena, pero el colchón es fino: un drenaje del Tesoro o "
+                "un mal dato puede tensar el repo rápido. Selectivo, sin apalancamiento.")
+    if net and net.get("change") and net["change"] > 50:
+        return "Entra liquidez en el sistema: suele sostener a la bolsa y al riesgo."
+    return "Liquidez sin tensiones: no es un freno para la bolsa."
+
+
+def digest_lines(db: Session, detailed: bool = False) -> list[str]:
     snap = snapshot(db)
     if not snap["indicators"]:
         return []
     icon = {"favorable": "🟢", "mixto": "🟡", "tenso": "🔴"}[snap["regime"]]
     by = {i["key"]: i for i in snap["indicators"]}
-    parts = []
-    if "dgs10" in by:
-        parts.append(f"10 años {by['dgs10']['value']:.2f}%")
-    if "move" in by:
-        parts.append(f"MOVE {by['move']['value']:.0f}")
-    if "vix" in by:
-        parts.append(f"VIX {by['vix']['value']:.0f}")
-    if "netliq" in by and by["netliq"]["change"] is not None:
-        parts.append(f"liquidez {by['netliq']['change']:+,.0f} mil M$/4 sem")
-    lines = [f"{icon} <b>Macro: {snap['regime']}</b> · " + " · ".join(parts)]
-    for i in snap["indicators"]:
-        if i["status"] == "stress":
-            lines.append(f"  • ⚠️ {i['reading']}")
-    for r in snap["kalshi"]:
-        if r["status"] == "stress":
-            lines.append(f"  • 🔮 {r['reading']}")
+    if not detailed:
+        parts = []
+        if "dgs10" in by:
+            parts.append(f"10 años {by['dgs10']['value']:.2f}%")
+        if "move" in by:
+            parts.append(f"MOVE {by['move']['value']:.0f}")
+        if "vix" in by:
+            parts.append(f"VIX {by['vix']['value']:.0f}")
+        if "netliq" in by and by["netliq"]["change"] is not None:
+            parts.append(f"liquidez {by['netliq']['change']:+,.0f} mil M$/4 sem")
+        return [f"{icon} <b>Macro: {snap['regime']}</b> · " + " · ".join(parts)]
+
+    lines = [f"🌍 <b>Macro: {icon} {snap['regime']}</b>", f"  {snap['summary']}"]
+    flagged = [i for i in snap["indicators"] if i["status"] != "ok" and i["key"] not in _LIQUIDITY]
+    for i in flagged:
+        lines.append(f"  {_ICON[i['status']]} <b>{i['name']}</b>: {i['reading']}")
+        lines.append(f"     👉 {i['action']}")
+    calm = [i["name"].split(" (")[0] for i in snap["indicators"] if i["status"] == "ok" and i["key"] not in _LIQUIDITY]
+    if calm:
+        lines.append(f"  🟢 En calma: {', '.join(calm)}.")
+
+    lines += ["", "💧 <b>Liquidez y fontanería</b>"]
+    for k in _LIQUIDITY:
+        if k in by:
+            i = by[k]
+            lines.append(f"  {_ICON[i['status']]} {i['reading']}")
+    lines.append(f"  👉 {liquidity_take(by)}")
+
+    ks = [r for r in snap["kalshi"] if r["status"] in ("watch", "stress")]
+    if ks:
+        lines += ["", "🔮 <b>Lo que descuentan las apuestas (Kalshi)</b>"]
+        for r in ks:
+            lines.append(f"  {_ICON[r['status']]} <b>{r['title']}</b>: {r['value']}")
+            lines.append(f"     👉 {r['action']}")
     for c in snap["polymarket"]["checks"]:
         if c["status"] != "ok":
-            lines.append(f"  • 🎲 No cuadran: {c['short']}")
+            lines.append(f"  🎲 No cuadran: {c['text']}")
     return lines
 
 

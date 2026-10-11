@@ -411,10 +411,12 @@ def digest_lines(db: Session) -> list[str]:
         .limit(3)
         .all()
     )
+    link = '<a href="https://congress-trades-tracker.netlify.app/polymarket">ver todas</a>'
     if not rows:
-        return []
+        return [f"🎯 <b>Polymarket:</b> ninguna apuesta sospechosa que mueva carteras en 24 h ({link})"]
     e = lambda x: html.escape(str(x), quote=False)  # noqa: E731
-    return ["🎯 <b>Polymarket: apuestas más raras (24 h)</b>"] + [
-        f"  • {r.score:.0f}/100 · {_usd(r.size_usd)} a «{e(r.outcome)}» ({r.price * 100:.0f}¢) en {e(r.market_question[:70])}"
+    return [f"🎯 <b>Polymarket: apuestas más raras (24 h)</b> · {link}"] + [
+        f"  • {'🔴' if r.score >= 75 else '🟠' if r.score >= 55 else '🟡'} {r.score:.0f}/100 · "
+        f"{_usd(r.size_usd)} a «{e(r.outcome)}» ({r.price * 100:.0f}¢) en {e(r.market_question[:70])}"
         for r in rows
     ]

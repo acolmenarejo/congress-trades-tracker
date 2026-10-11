@@ -336,7 +336,8 @@ def trigger_poll(secret: str = Query(...)):
         raise HTTPException(status_code=502, detail=f"GitHub dispatch failed: {status_code}")
     # GitHub's hourly schedule for polymarket.yml arrives hours late, so this
     # pinger also starts it once an hour. Two minutes wide because pings come
-    # every 1-2 min; a double start just queues behind the workflow's concurrency.
+    # every 1-2 min; a double start queues behind the workflow's concurrency and
+    # checks out master's tip, so it doesn't resend what the first run sent.
     if datetime.utcnow().minute in (25, 26):
         try:
             _dispatch_workflow("polymarket.yml")
