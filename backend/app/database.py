@@ -106,6 +106,7 @@ _ADDED_COLUMNS = [
     ("polymarket_alerts", "wallet_markets", "INTEGER"),
     ("polymarket_alerts", "implication", "VARCHAR"),
     ("polymarket_alerts", "notified", "BOOLEAN"),
+    ("insider_trades", "pattern", "VARCHAR"),
 ]
 
 

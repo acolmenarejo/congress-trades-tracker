@@ -38,7 +38,7 @@ from datetime import date, datetime, timedelta
 import requests
 from sqlalchemy.orm import Session
 
-from . import alert_track
+from . import alert_track, insider_pattern
 from .models import InsiderTrade, TelegramState
 
 logger = logging.getLogger(__name__)
@@ -330,6 +330,8 @@ def format_alert(buys: list[InsiderTrade], analysis=None, db: Session | None = N
         pos = _pos_line(t)
         if pos and t.shares_after:
             lines.append(f"📊 <b>Posición:</b> {_fmt_shares(t.shares_after)} acciones tras la compra ({pos})")
+        if t.pattern in insider_pattern.LABEL:
+            lines.append(insider_pattern.LABEL[t.pattern])
     else:
         lines = [
             f"👥 <b>{len(insiders)} DIRECTIVOS COMPRANDO</b> · <b>{e(t.ticker)}</b> ({e(company)})",
@@ -352,6 +354,12 @@ def format_alert(buys: list[InsiderTrade], analysis=None, db: Session | None = N
                 f"• {e(_pretty(last.insider_name))} ({e(_role_es(last.role))}): {_fmt_usd(sum(b.value_usd for b in bs))}"
                 + (f", {pos}" if pos else "") + when
             )
+
+    if len(insiders) > 1:
+        n_atyp = len({b.insider_cik for b in buys if b.pattern == "opportunistic"})
+        n_rout = len({b.insider_cik for b in buys if b.pattern == "routine"})
+        if n_atyp or n_rout:
+            lines.append(f"🧭 <b>Patrón:</b> {n_atyp} compra(s) atípica(s) y {n_rout} de rutina entre los {len(insiders)} directivos.")
 
     if analysis:
         _, f, st = analysis
@@ -460,6 +468,12 @@ def notify(db: Session) -> int:
         except Exception:
             logger.exception("insiders: technical analysis failed for %s", ticker)
             analysis = None
+        cache: dict = {}
+        for b in buys:
+            try:
+                b.pattern = insider_pattern.pattern(b.insider_cik, b.transaction_date, cache)
+            except Exception:
+                logger.exception("insiders: pattern failed for %s", b.insider_name)
         body = format_alert(buys, analysis, db)
         png = None
         if analysis:
@@ -475,7 +489,7 @@ def notify(db: Session) -> int:
         sent += sum(send_alert(c, body, png) for c in chats)
         for b in buys:
             alert_track.record(db, f"insider:{b.accession}", "insider", b.avg_price, f"{b.insider_name} · {b.role or ''}",
-                               ticker=ticker, alerted=True)
+                               ticker=ticker, direction=b.pattern, alerted=True)
     db.commit()
     logger.info("insiders: %d pending, %d tickers alerted, %d messages sent", len(pending), len(groups), sent)
     return sent

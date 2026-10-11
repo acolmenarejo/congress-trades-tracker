@@ -241,6 +241,7 @@ class InsiderTrade(Base):
     shares_after = Column(Float, nullable=True)
     notified = Column(Boolean, nullable=False, default=False, server_default="0")
     detected_at = Column(DateTime, server_default=func.now())
+    pattern = Column(String, nullable=True)  # opportunistic | routine | unknown (app/insider_pattern.py)
 
 
 class SetupSignal(Base):

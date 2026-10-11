@@ -1,0 +1,38 @@
+name: probe-tmp
+on:
+  push:
+    branches: [claude/insider-patterns]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r backend/requirements.txt
+      - name: Probe
+        working-directory: backend
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          python - <<'PY'
+          from datetime import date, timedelta
+          from app import insider_pattern as ip, edgar_flags as ef
+          cache = {}
+          for name, cik in [("Tim Cook", "1214156"), ("Jamie Dimon", "19617"), ("Elon Musk", "1494730")]:
+              d = ip.filing_dates(cik, date(2022, 1, 1))
+              print(name, "form4 filings:", None if d is None else len(d), "oldest", None if not d else min(d))
+              for m in (3, 6, 9, 11):
+                  print("  month", m, ip.classify(d or [], date(2026, m, 10)))
+          t = ef.ticker_ciks()
+          print("tickers", len(t), t.get("AAPL"), t.get("DPZ"))
+          # 2 years of flags over a handful of tickers, to see the parser works
+          found = []
+          for tk in ["AAPL", "DPZ", "TSLA", "BA", "SMCI", "WOLF", "NKLA", "AMZN"]:
+              if tk in t:
+                  found += ef.flags_for(tk, t[tk], date.today() - timedelta(days=900))
+          for f in found:
+              print(f["ticker"], f["form"], f["filed"], f["what"], f["url"])
+          print("flags found:", len(found))
+          PY
