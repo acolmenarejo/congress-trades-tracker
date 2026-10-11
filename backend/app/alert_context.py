@@ -108,13 +108,13 @@ def news(query: str, hours: int = NEWS_HOURS) -> list[dict] | None:
 # A promo ("free pizza on game day") is not news that moves a KPI bet.
 BUSINESS = re.compile(
     r"earnings|results|quarter|revenue|sales|profit|guidance|outlook|forecast|analyst|downgrade|upgrade|"
-    r"price target|shares|stock|deliver|orders|layoff|job cuts|ceo|cfo|merger|acqui|lawsuit|sec |probe|"
+    r"price target|shares|stock|deliveries|orders|layoff|job cuts|ceo|cfo|merger|acqui|lawsuit|sec |probe|"
     r"recall|tariff|strike|bankrupt|dividend|buyback|traffic|comparable|same-store|subscribers|users",
     re.I,
 )
 
 
-_JUNK = re.compile(r"stock price, news, quote|quote & history|stocks to buy", re.I)
+_JUNK = re.compile(r"stock price, news, quote|quote & history|stocks? to buy|better buy|should you buy|motley", re.I)
 
 
 def name_from_title(title: str) -> str:
@@ -130,11 +130,14 @@ def name_from_title(title: str) -> str:
     return " ".join(words[:3])
 
 
-def about(items: list[dict] | None, name: str, ticker: str) -> list[dict] | None:
+def about(items: list[dict] | None, name: str, ticker: str, topic: str = "") -> list[dict] | None:
     """Keep headlines that name the company (or its ticker) and talk business:
-    a search also returns sports sponsorships, promos and quote pages."""
+    a search also returns sports sponsorships, promos and quote pages.
+    Headlines sharing a word with `topic` (the KPI's title) come first."""
     if items is None:
         return None
+    words = {w for w in re.findall(r"[a-z]{5,}", topic.lower())} - {"total", "fiscal", "growth"}
+    items = sorted(items, key=lambda x: not any(w[:6] in x["title"].lower() for w in words))
     key = re.sub(r"[’']s$", "", name.split()[0]).lower() if name else ticker.lower()
     pat = re.compile(rf"\b{re.escape(key)}|\b{re.escape(ticker)}\b", re.I)
     return [x for x in items if pat.search(x["title"]) and BUSINESS.search(x["title"]) and not _JUNK.search(x["title"])]

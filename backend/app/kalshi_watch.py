@@ -231,7 +231,7 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
     query, core, info = (None, False, None) if stock else _macro_info(r["series"])
     if stock:
         name = ctx.company_name(db, stock) or ctx.name_from_title(r["title"]) or stock
-        items = ctx.about(ctx.news(f'"{name}"'), name, stock)
+        items = ctx.about(ctx.news(f'"{name}"'), name, stock, r["title"])
     else:
         items = ctx.news(query) if query else None
         if items:  # "readers find the silver lining in high fuel prices" is not a cause
