@@ -62,7 +62,7 @@ jobs:
             cp $DB /tmp/ours.db
             git fetch -q origin master
             git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB company_profiles insider_trades "telegram_state:key LIKE 'insiders%'"
+            python backend/tools/merge_tables.py /tmp/ours.db $DB company_profiles insider_trades "alert_outcomes:source = 'insider'" "telegram_state:key LIKE 'insiders%'"
             sleep $((attempt * 5))
           done
           exit 1

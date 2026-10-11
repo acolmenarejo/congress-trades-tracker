@@ -277,3 +277,27 @@ class CompanyProfile(Base):
     industry = Column(String, nullable=True)  # Spanish
     summary = Column(String, nullable=True)  # one sentence, Spanish when translation worked
     fetched_at = Column(DateTime, server_default=func.now())
+
+
+class AlertOutcome(Base):
+    """Every Polymarket bet, Kalshi move and insider purchase we stored or
+    alerted, with what happened afterwards, so we can tell with data whether
+    each kind of alert has any edge. See app/alert_track.py."""
+
+    __tablename__ = "alert_outcomes"
+
+    ref = Column(String, primary_key=True)  # tx_hash / kalshi market / accession
+    source = Column(String, index=True, nullable=False)  # polymarket | kalshi | insider
+    title = Column(String, nullable=True)
+    ticker = Column(String, nullable=True)  # stock (insiders) or Kalshi market ticker
+    direction = Column(String, nullable=True)  # yes | no (the side the alert points to)
+    score = Column(Float, nullable=True)
+    price0 = Column(Float, nullable=False)  # price paid / probability / share price at alert
+    created = Column(Date, index=True, nullable=False)
+    alerted = Column(Boolean, nullable=False, default=False)  # sent by Telegram
+    status = Column(String, nullable=False, default="open")  # open | win | lose | done
+    ret30 = Column(Float, nullable=True)  # insiders: return after 30 days
+    bench30 = Column(Float, nullable=True)  # same window for SPY
+    ret90 = Column(Float, nullable=True)
+    bench90 = Column(Float, nullable=True)
+    updated = Column(DateTime, nullable=True)

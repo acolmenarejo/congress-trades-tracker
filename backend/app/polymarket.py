@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 import requests
 from sqlalchemy.orm import Session
 
+from . import alert_track
 from .models import PolymarketAlert, TelegramState
 
 logger = logging.getLogger("polymarket")
@@ -324,6 +325,7 @@ def scan(db: Session, backfill_hours: int = 0) -> dict:
             row.detected_at = datetime.utcnow()
         else:
             db.add(PolymarketAlert(tx_hash=key, **fields))
+        alert_track.record(db, key, "polymarket", price, fields["market_question"], score=score)
         stats["stored"] += 1
 
     db.merge(TelegramState(key=STATE_KEY, value=str(max(t.get("timestamp") or 0 for t in trades))))
@@ -394,6 +396,7 @@ def notify(db: Session) -> int:
     for a in pending:
         if should_alert(a) and chats and sent < MAX_ALERTS_PER_RUN * len(chats):
             sent += sum(send_message(c, format_alert(a)) for c in chats)
+            alert_track.mark_alerted(db, a.tx_hash)
         a.notified = True
     db.commit()
     return sent

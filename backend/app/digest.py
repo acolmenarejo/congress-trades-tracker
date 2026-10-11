@@ -186,7 +186,13 @@ def polymarket_lines(db: Session) -> list[str]:
 
 
 # Sections without a time window (current state).
-EXTRA_SECTIONS: list = [macro_lines, polymarket_lines]
+def accuracy_lines(db: Session) -> list[str]:
+    from . import alert_track
+
+    return alert_track.summary_lines(db)
+
+
+EXTRA_SECTIONS: list = [macro_lines, polymarket_lines, accuracy_lines]
 
 
 def maybe_send(db: Session, now: datetime | None = None) -> bool:

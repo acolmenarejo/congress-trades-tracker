@@ -29,5 +29,8 @@ if __name__ == "__main__":
     try:
         scan(db, force="--force" in sys.argv)
         notify(db)
+        from app import alert_track  # noqa: E402
+
+        alert_track.settle(db, ("insider",))  # 30/90-day returns of past alerts
     finally:
         db.close()

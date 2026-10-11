@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
-from . import alert_context as ctx
+from . import alert_context as ctx, alert_track
 from .kalshi_company import _market
 from .models import TelegramState, TelegramSubscriber
 
@@ -292,5 +292,9 @@ def notify(db: Session, events: list[dict], company: dict[str, list[dict]]) -> i
         best = max(rs, key=lambda x: abs(x["p"] - x["prev"]))
         text = message(db, best, len(rs) - 1, wl)
         n += sum(send_message(c, text) for c in chats)
+        # The move points to YES if the price rose; settles when the market resolves.
+        alert_track.record(db, f"kalshi:{best['ticker']}", "kalshi", best["p"], best["title"], ticker=best["ticker"],
+                           direction="yes" if best["p"] > best["prev"] else "no", alerted=True)
+    db.commit()
     logger.info("kalshi_watch: %d events", len(picked))
     return n
