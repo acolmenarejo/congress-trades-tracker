@@ -57,5 +57,12 @@ if __name__ == "__main__":
                 kalshi_watch.notify(db, kalshi_expect.SEEN, company)  # 15+ point moves in a day
         except Exception:
             logging.exception("kalshi_watch failed")
+        try:
+            from app import alert_track
+
+            alert_track.backfill_polymarket(db)
+            alert_track.settle(db, ("polymarket", "kalshi"))  # resolved markets -> win/lose
+        except Exception:
+            logging.exception("alert_track failed")
     finally:
         db.close()

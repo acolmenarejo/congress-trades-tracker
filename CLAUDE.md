@@ -260,6 +260,15 @@ y revisión general de mejoras de frontend.
   `kalshi_watch` manda un mensaje por evento (no por escalón; enfriamiento de
   3 días por evento, máx. 4 por ejecución) con qué implica y qué hacer. El
   resumen diario empieza por la watchlist y trae un bloque de liquidez.
+- `app/alert_track.py` (2026-10-11, tabla `alert_outcomes`): mide el acierto
+  real de lo que dice saber algo. Se registra cada apuesta de Polymarket
+  guardada, cada aviso de Kalshi y cada compra de directivos avisada; se
+  liquida cuando el mercado resuelve (win/lose) o, en directivos, con la
+  rentabilidad a 30/90 días contra SPY. El resumen diario compara aciertos con
+  lo que implicaba el precio (una apuesta a 20¢ debe ganar el 20%) y no
+  concluye con < 20 casos. Revisar a los 2-3 meses y quitar el aviso que no
+  supere al precio. `polymarket.yml` liquida polymarket/kalshi e `insiders.yml`
+  los directivos; cada uno hace merge solo de su `source`.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).

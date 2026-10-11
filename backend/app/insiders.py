@@ -38,6 +38,7 @@ from datetime import date, datetime, timedelta
 import requests
 from sqlalchemy.orm import Session
 
+from . import alert_track
 from .models import InsiderTrade, TelegramState
 
 logger = logging.getLogger(__name__)
@@ -472,6 +473,9 @@ def notify(db: Session) -> int:
                 marker = [(first, sum(b.value_usd for b in dated) / sh, label)]
             png = setups.render_chart(ticker, bars, f, markers=marker)
         sent += sum(send_alert(c, body, png) for c in chats)
+        for b in buys:
+            alert_track.record(db, f"insider:{b.accession}", "insider", b.avg_price, f"{b.insider_name} · {b.role or ''}",
+                               ticker=ticker, alerted=True)
     db.commit()
     logger.info("insiders: %d pending, %d tickers alerted, %d messages sent", len(pending), len(groups), sent)
     return sent
