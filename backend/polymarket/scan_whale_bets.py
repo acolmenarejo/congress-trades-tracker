@@ -20,7 +20,7 @@ except ImportError:
 
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import MacroPoint, PolymarketAlert  # noqa: E402
-from app import kalshi_expect, polymarket_macro  # noqa: E402
+from app import kalshi_company, kalshi_expect, kalshi_watch, polymarket_macro  # noqa: E402
 from app.polymarket import notify, prune, scan  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -47,5 +47,15 @@ if __name__ == "__main__":
             kalshi_expect.fetch(db, spx_now=spx.value if spx else None)  # Kalshi-only forecasts
         except Exception:
             logging.exception("kalshi_expect failed")
+        company = {}
+        try:
+            company = kalshi_company.fetch(db)  # KPI / earnings-call markets for tickers people buy
+        except Exception:
+            logging.exception("kalshi_company failed")
+        try:
+            if not hours:
+                kalshi_watch.notify(db, kalshi_expect.SEEN, company)  # 15+ point moves in a day
+        except Exception:
+            logging.exception("kalshi_watch failed")
     finally:
         db.close()

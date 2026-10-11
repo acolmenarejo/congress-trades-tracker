@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, type PricePoint, type TickerSummary } from "../lib/api";
+import { api, type KalshiCompanyEvent, type PricePoint, type TickerSummary } from "../lib/api";
 import { useDarkMode } from "../hooks/useDarkMode";
 import CandlestickChart from "../components/charts/CandlestickChart";
 import TransactionBadge from "../components/TransactionBadge";
@@ -10,6 +10,7 @@ import OptionBadge from "../components/OptionBadge";
 import LogDecisionButton from "../components/LogDecisionButton";
 import WatchButton from "../components/WatchButton";
 import EarningsBadge from "../components/EarningsBadge";
+import KalshiCompanyCard from "../components/KalshiCompanyCard";
 import { SkeletonRows, Skeleton } from "../components/Skeleton";
 import { useCommitteesForMembers } from "../hooks/useCommittees";
 import { detectConflict } from "../lib/conflictOfInterest";
@@ -34,12 +35,14 @@ export default function TickerPage() {
   const [days, setDays] = useState(180);
   const [notFound, setNotFound] = useState(false);
   const [earningsDates, setEarningsDates] = useState<string[]>([]);
+  const [kalshi, setKalshi] = useState<KalshiCompanyEvent[]>([]);
   const committees = useCommitteesForMembers((summary?.trades ?? []).map((t) => t.member_match_key));
 
   useEffect(() => {
     if (!ticker) return;
     api.ticker(ticker).then(setSummary).catch(() => setNotFound(true));
     api.tickerEarnings(ticker).then(setEarningsDates).catch(() => setEarningsDates([]));
+    api.tickerKalshi(ticker).then(setKalshi).catch(() => setKalshi([]));
   }, [ticker]);
 
   useEffect(() => {
@@ -70,7 +73,16 @@ export default function TickerPage() {
   }, [summary, days]);
 
   if (notFound) {
-    return <p className="text-sm text-ink/60 dark:text-slate-400">Sin trades registrados para este ticker.</p>;
+    // Insider-only tickers link here too: still show what Kalshi expects.
+    return (
+      <div className="space-y-6">
+        <h2 className="font-serif text-2xl font-semibold">
+          <span className="font-mono">${ticker?.toUpperCase()}</span>
+        </h2>
+        <p className="text-sm text-ink/60 dark:text-slate-400">Sin trades del Congreso registrados para este ticker.</p>
+        <KalshiCompanyCard events={kalshi} />
+      </div>
+    );
   }
   if (!summary) {
     return (
@@ -97,6 +109,7 @@ export default function TickerPage() {
         </p>
       </div>
 
+      <KalshiCompanyCard events={kalshi} />
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1">
           {RANGE_OPTIONS.map((opt) => (

@@ -187,6 +187,28 @@ export interface KalshiExpectation {
   url: string | null;
 }
 
+export interface KalshiCompanyMarket {
+  ticker: string;
+  label: string;
+  p: number | null;
+  prev: number | null;
+  oi: number;
+}
+
+export interface KalshiCompanyEvent {
+  event: string;
+  series: string;
+  kind: "kpi" | "mention";
+  title: string;
+  sub_title: string | null;
+  oi: number;
+  url: string;
+  median_label?: string | null;
+  lean?: "weak" | null;
+  lean_text?: string | null;
+  markets: KalshiCompanyMarket[];
+}
+
 export type PolymarketCategory = "mercados" | "geopolitica" | "otros";
 
 export interface SetupSignal {
@@ -302,4 +324,5 @@ export const api = {
   setupSignals: () => getJSON<SetupSignal[]>("/setups/signals"),
   macro: () => getJSON<MacroSnapshot>("/macro"),
   tickerEarnings: (ticker: string) => getJSON<string[]>(`/tickers/${ticker}/earnings`),
+  tickerKalshi: (ticker: string) => getJSON<KalshiCompanyEvent[]>(`/tickers/${ticker}/kalshi`),
 };

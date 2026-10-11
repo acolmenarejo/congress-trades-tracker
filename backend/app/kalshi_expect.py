@@ -17,8 +17,10 @@ the "Lo que descuenta Kalshi" block and the early-warning statuses.
 import json
 import logging
 import re
+import time
 from datetime import date
 
+import requests
 from sqlalchemy.orm import Session
 
 from .models import MacroPoint, TelegramState
@@ -37,9 +39,25 @@ def _num(text: str) -> float | None:
     return float(m.group().replace(",", "")) if m else None
 
 
+def _get_slow(url: str, params: dict) -> dict:
+    """Kalshi answers 429 past ~10 requests/s: pace the calls and back off."""
+    for wait in (0, 2, 5, 10):
+        time.sleep(wait or 0.15)
+        try:
+            return _get(url, params)
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 429:
+                raise
+    return _get(url, params)
+
+
+SEEN: list[dict] = []  # every event fetched this run, for app/kalshi_watch.py
+
+
 def _events(series: str) -> list[dict]:
-    r = _get(f"{KALSHI}/events", {"series_ticker": series, "status": "open", "with_nested_markets": "true", "limit": 20})
+    r = _get_slow(f"{KALSHI}/events", {"series_ticker": series, "status": "open", "with_nested_markets": "true", "limit": 20})
     evs = [e for e in r.get("events") or [] if e.get("markets")]
+    SEEN.extend(evs)
     return sorted(evs, key=lambda e: min(m.get("close_time") or "9" for m in e["markets"]))
 
 
@@ -126,9 +144,13 @@ def fetch(db: Session, spx_now: float | None = None) -> dict[str, float]:
     def note(key, e):
         meta[key] = {"title": e.get("title"), "ticker": e.get("event_ticker"), "series": e.get("series_ticker")}
 
-    ladders = [  # key, series, how many upcoming events
+    ladders = [  # key, series: the next event's "Above X" ladder -> median
         ("PAYROLLS", "KXPAYROLLS"), ("U3", "KXU3"), ("GDP", "KXGDP"), ("CPI", "KXCPI"),
         ("CORECPI", "KXCPICOREYOY"), ("PCE", "KXPCEHEAD"),
+        # weekly/monthly prices and plumbing (added 2026-10-11)
+        ("GAS", "KXAAAGASW"), ("DIESEL", "KXDIESELW"), ("OER", "KXOER"), ("SHELTER", "KXSHELTERCPI"),
+        ("SPR", "KXSPRLVL"), ("PJM", "KXPJMEMERGENCY"), ("DDR5", "KXDDR5MS"),
+        ("NATGAS", "KXNATGASMON"), ("BRENT", "KXBRENTMON"),
     ]
     for key, series in ladders:
         try:
@@ -143,6 +165,16 @@ def fetch(db: Session, spx_now: float | None = None) -> dict[str, float]:
                         values["KS_PAYROLLS_NEG"] = 1 - p0
         except Exception:
             logger.exception("kalshi_expect: %s failed", series)
+
+    try:  # September CPI headline x core: the single most likely combination
+        e = first("KXCPICOMBO")
+        best = max(((m, _ks_prob(m)) for m in (e or {}).get("markets") or []), key=lambda x: x[1] or 0, default=None)
+        if best and best[1] is not None:
+            values["KS_CPICOMBO_TOP"] = best[1]
+            meta["CPICOMBO"] = {"title": e.get("title"), "ticker": e.get("event_ticker"), "series": "KXCPICOMBO",
+                                "label": best[0].get("yes_sub_title")}
+    except Exception:
+        logger.exception("kalshi_expect: KXCPICOMBO failed")
 
     try:  # Fed funds after each of the next two meetings
         for i, e in enumerate(_events("KXFED")[:2], 1):
