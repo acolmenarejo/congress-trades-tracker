@@ -6,6 +6,7 @@ standalone via bot/commands.py for local dev / the GitHub Actions fallback.
 import logging
 
 from .config import DEFAULT_WATCHED_MEMBERS, TELEGRAM_BOT_TOKEN
+from .alert_context import split_message
 from .database import SessionLocal, init_db
 from .models import Member, TelegramState, TelegramSubscriber, TelegramWatch
 from .name_utils import member_match_key
@@ -168,6 +169,11 @@ def process_updates() -> int:
     try:
         offset = _get_offset(db)
         updates = get_updates(offset=(offset + 1) if offset else None)
+        if updates:
+            # Confirm them with Telegram before answering: until the next
+            # getUpdates with a higher offset, Telegram hands the same updates
+            # to any other run, and the stored offset reaches the repo late.
+            get_updates(offset=max(u["update_id"] for u in updates) + 1, timeout=0)
         for update in updates:
             update_id = update["update_id"]
             message = update.get("message") or update.get("edited_message")
@@ -176,7 +182,8 @@ def process_updates() -> int:
                 username = message["chat"].get("username")
                 is_new = _ensure_subscriber(db, chat_id, username)
                 reply = _dispatch(db, chat_id, message["text"], is_new)
-                send_message(chat_id, reply)
+                for part in split_message(reply):
+                    send_message(chat_id, part)
             _set_offset(db, update_id)
             db.commit()
             processed += 1

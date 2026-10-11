@@ -1,0 +1,35 @@
+name: probe-tmp
+on:
+  push:
+    branches: [claude/project-thread-qxdy5j]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q -r backend/requirements.txt
+      - name: probe
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import logging; logging.basicConfig(level=logging.WARNING)
+          from app.database import SessionLocal
+          from app import alert_context as ac, kalshi_expect, kalshi_company, kalshi_watch as kw
+          db = SessionLocal()
+          print("NEWS DPZ:", ac.news('"Domino\'s" OR DPZ')[:3])
+          print("NEWS oil:", (ac.news("oil prices") or [])[:2])
+          kalshi_expect.fetch(db)
+          comp = kalshi_company.load(db)
+          kw.MIN_MOVE = 0.08
+          rows = kw.moves(kalshi_expect.SEEN, comp)
+          print("ROWS", len(rows))
+          by = {}
+          for r in rows: by.setdefault(r["event"], []).append(r)
+          wl = ac.watchlist(db)
+          for rs in list(by.values())[:4]:
+              best = max(rs, key=lambda x: abs(x["p"] - x["prev"]))
+              print("=" * 40); print(kw.message(db, best, len(rs) - 1, wl))
+          PY

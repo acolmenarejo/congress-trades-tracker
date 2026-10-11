@@ -10,11 +10,22 @@ on:
 permissions:
   contents: write
 
+# Pings come every 1-2 min; two overlapping runs read the same Telegram
+# updates and answered /resumen twice.
+concurrency:
+  group: bot-poll
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
     steps:
+      # A dispatched run that waited behind `concurrency` still carries the
+      # commit it was started on; check out master's tip instead, or it runs
+      # on a stale DB and resends alerts the previous run already sent.
       - uses: actions/checkout@v4
+        with:
+          ref: master
 
       - uses: actions/setup-python@v5
         with:
