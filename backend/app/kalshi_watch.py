@@ -79,6 +79,11 @@ MACRO = [
       "text_down": "memoria más barata: se enfría la demanda de chips de memoria"}),
 ]
 _DOWN_WORDS = re.compile(r"\b(below|under|less than|or lower|or less|fewer)\b", re.I)
+_MACRO_NEWS = re.compile(
+    r"opec|crude|brent|wti|oil (price|futures|supply)|fed\b|powell|fomc|rate (hike|cut)|inflation|cpi|"
+    r"jobs report|payrolls|unemployment|recession|gdp|tariff|natural gas|treasur|yields?\b|stocks? (fall|rise|rally|slide)",
+    re.I,
+)
 _NEUTRAL_KPI = re.compile(r"headcount|employees|staff", re.I)
 
 
@@ -225,9 +230,13 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
     watched = bool(stock and stock in wl)
     query, core, info = (None, False, None) if stock else _macro_info(r["series"])
     if stock:
-        name = ctx.company_name(db, stock) or stock
-        query = f'"{name}" OR {stock}' if name != stock else f"{stock} stock"
-    nl, has_news = ctx.news_lines(ctx.news(query) if query else None, business_only=bool(stock))
+        name = ctx.company_name(db, stock) or ctx.name_from_title(r["title"]) or stock
+        items = ctx.about(ctx.news(f'"{name}"'), name, stock)
+    else:
+        items = ctx.news(query) if query else None
+        if items:  # "readers find the silver lining in high fuel prices" is not a cause
+            items = [x for x in items if _MACRO_NEWS.search(x["title"])]
+    nl, has_news = ctx.news_lines(items)
     points = abs(r["p"] - r["prev"]) * 100
     level = ctx.impact(points, r["ev_oi"], watched, _days_to(r["close"], now), core)
     arrow = "⬆️" if r["p"] > r["prev"] else "⬇️"
@@ -240,7 +249,7 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
         f"{arrow} «{e(r['label'])}»: {r['prev'] * 100:.0f}% → <b>{r['p'] * 100:.0f}%</b> ({(r['p'] - r['prev']) * 100:+.0f} puntos en 24 h)",
     ]
     if others:
-        lines.append(f"   (y {others} escalón{'es' if others > 1 else ''} más del mismo dato)")
+        lines.append(f"   (y {others} {'escalones' if others > 1 else 'escalón'} más del mismo dato)")
     lines.append(f"💰 {r['ev_oi']:,.0f} contratos abiertos".replace(",", "."))
     lines.append("")
     lines += nl

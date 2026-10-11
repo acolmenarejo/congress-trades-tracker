@@ -114,14 +114,36 @@ BUSINESS = re.compile(
 )
 
 
-def news_lines(items: list[dict] | None, business_only: bool = False) -> tuple[list[str], bool | None]:
-    """Lines for the alert, and whether there was public news (None = unknown).
-    business_only drops headlines with nothing about the business (company
-    queries pull in promos and sports sponsorships)."""
+_JUNK = re.compile(r"stock price, news, quote|quote & history|stocks to buy", re.I)
+
+
+def name_from_title(title: str) -> str:
+    """'Tesla deliveries in Q1' -> 'Tesla'; 'American Express cards...' ->
+    'American Express': leading capitalised words, minus a trailing 'US'."""
+    words = []
+    for w in (title or "").split():
+        if not w[:1].isupper():
+            break
+        words.append(w)
+    while words and words[-1] in ("US", "U.S.", "Global", "Total", "Active"):
+        words.pop()
+    return " ".join(words[:3])
+
+
+def about(items: list[dict] | None, name: str, ticker: str) -> list[dict] | None:
+    """Keep headlines that name the company (or its ticker) and talk business:
+    a search also returns sports sponsorships, promos and quote pages."""
+    if items is None:
+        return None
+    key = re.sub(r"[’']s$", "", name.split()[0]).lower() if name else ticker.lower()
+    pat = re.compile(rf"\b{re.escape(key)}|\b{re.escape(ticker)}\b", re.I)
+    return [x for x in items if pat.search(x["title"]) and BUSINESS.search(x["title"]) and not _JUNK.search(x["title"])]
+
+
+def news_lines(items: list[dict] | None) -> tuple[list[str], bool | None]:
+    """Lines for the alert, and whether there was public news (None = unknown)."""
     if items is None:
         return ["📰 No he podido comprobar las noticias."], None
-    if business_only:
-        items = [x for x in items if BUSINESS.search(x["title"])]
     if not items:
         return [f"🕵️ <b>Sin noticias en {NEWS_HOURS} h.</b> Puede que el mercado sepa algo que aún no se ha publicado, o que sea ruido."], False
     top = items[0]

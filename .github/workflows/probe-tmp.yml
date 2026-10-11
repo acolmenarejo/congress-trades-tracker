@@ -19,11 +19,13 @@ jobs:
           from app.database import SessionLocal
           from app import alert_context as ac, kalshi_expect, kalshi_company, kalshi_watch as kw
           db = SessionLocal()
-          print("NEWS DPZ:", ac.news('"Domino\'s" OR DPZ')[:3])
-          print("NEWS oil:", (ac.news("oil prices") or [])[:2])
+          for n, t in (("Domino's", "DPZ"), ("Tesla", "TSLA"), ("Amazon", "AMZN"), ("Boeing", "BA")):
+              print("NEWS", t, [x["title"] for x in ac.about(ac.news(f'"{n}"'), n, t)][:3])
           kalshi_expect.fetch(db)
           comp = kalshi_company.load(db)
           kw.MIN_MOVE = 0.08
+          from app import digest
+          b = digest.build(db); print(b); print("VISIBLE", ac._visible(b), "PARTS", len(ac.split_message(b)))
           rows = kw.moves(kalshi_expect.SEEN, comp)
           print("ROWS", len(rows))
           by = {}
