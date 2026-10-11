@@ -4,7 +4,7 @@ Only filings that mean "the numbers or the company itself may be in trouble":
   - NT 10-K / NT 10-Q: late annual/quarterly report notice
   - 8-K item 4.02: past financial statements should no longer be relied on
   - 8-K item 4.01: change of auditor
-  - 8-K item 3.01: notice of delisting / failure to meet a listing rule
+  - 8-K item 3.01: delisting notice / listing-rule failure (or just a change of exchange)
   - 8-K item 1.03: bankruptcy
 Late filers and restatements have been shown to keep drifting down after the
 news (e.g. Alford, Jones & Zmijewski, 1994, from memory); the alert is an
@@ -33,7 +33,8 @@ SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 ITEMS = {
     "4.02": ("la empresa avisa de que sus cuentas pasadas no son fiables (reformulación)", "alto"),
     "4.01": ("cambio de auditor", "medio"),
-    "3.01": ("aviso de posible exclusión de bolsa", "alto"),
+    # Also filed for a plain move between exchanges (DPZ, Dec 2024), so only "check it".
+    "3.01": ("aviso sobre su cotización (puede ser un simple cambio de bolsa o un incumplimiento de las normas para cotizar)", "medio"),
     "1.03": ("quiebra o concurso de acreedores", "alto"),
 }
 

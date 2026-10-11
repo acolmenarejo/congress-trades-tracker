@@ -11,7 +11,6 @@ accuracy of each label is measured in alert_outcomes (direction column)."""
 import logging
 from datetime import date
 
-from .insiders import _get
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,8 @@ def _form4_dates(block: dict) -> list[date]:
 
 def filing_dates(cik: str, since: date) -> list[date] | None:
     """Form 4 filing dates of one person from `since` on; None if EDGAR could not be read."""
+    from .insiders import _get  # insiders imports this module
+
     resp = _get(f"{SUBMISSIONS}/CIK{int(cik):010d}.json")
     if resp is None:
         return None
