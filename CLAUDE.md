@@ -194,7 +194,7 @@ y revisión general de mejoras de frontend.
 
 ## Resumen diario, macro y tamaño de la DB (2026-10-10)
 
-- `app/digest.py`: resumen por Telegram una vez al día pasadas las 07:00 UTC,
+- `app/digest.py` (2026-10-12): `build(db, chat_id)` es el resumen corto y personal (~700 caracteres: su lista, directivos, señales, macro en una línea, Polymarket solo ≥ 75); `build_full` es el largo y sale con `/resumen completo`. `maybe_send` genera uno por suscriptor. Antes: resumen por Telegram una vez al día pasadas las 07:00 UTC,
   enviado desde `bot/commands.py` (la ejecución frecuente de `bot-poll.yml`,
   porque el `schedule:` de GitHub llega con horas de retraso). También con
   `/resumen`. Secciones: Congreso, directivos, señales abiertas, macro y

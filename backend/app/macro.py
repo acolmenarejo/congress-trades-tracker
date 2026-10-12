@@ -545,6 +545,23 @@ def liquidity_take(by: dict) -> str:
     return "Liquidez sin tensiones: no es un freno para la bolsa."
 
 
+def brief_lines(db: Session) -> list[str]:
+    """Executive digest: the regime, and the one thing to do about the most
+    serious flagged indicator (if any)."""
+    snap = snapshot(db)
+    if not snap["indicators"]:
+        return []
+    icon = {"favorable": "🟢", "mixto": "🟡", "tenso": "🔴"}[snap["regime"]]
+    summary = (snap["summary"] or "").strip().split(". ")[0].rstrip(".")
+    lines = [f"🌍 <b>Macro {icon} {snap['regime']}</b> · {summary[:150]}"]
+    flagged = [i for i in snap["indicators"] if i["status"] != "ok"]
+    if flagged:
+        top = max(flagged, key=lambda i: _RANK[i["status"]])
+        act = top["action"].split(". ")[0].rstrip(".")
+        lines.append(f"  👉 {top['name'].split(' (')[0]}: {act[:110]}")
+    return lines
+
+
 def digest_lines(db: Session, detailed: bool = False) -> list[str]:
     snap = snapshot(db)
     if not snap["indicators"]:
