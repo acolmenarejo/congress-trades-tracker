@@ -280,6 +280,10 @@ y revisión general de mejoras de frontend.
   (quiebra) o 3.01 (puede ser un simple cambio de bolsa, ojo con DPZ dic-2024).
   Corre en `insiders.yml`; estado en `telegram_state` `insiders_flags_sent`;
   se mide como `edgar_flag` (retorno a 30/90 días contra SPY).
+- Filings grandes (2026-10-11): Ro Khanna publicó un filing con 128 operaciones y
+  llegaron ~97 mensajes de Telegram, uno por operación. `bot_notify.send_alerts`
+  agrupa por chat + congresista + filing y, desde `BATCH_MIN_TRADES` (4), manda
+  un solo resumen (compras/ventas, las 12 mayores, tickers de la watchlist con ⭐).
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).

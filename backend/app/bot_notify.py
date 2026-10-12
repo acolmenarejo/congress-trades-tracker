@@ -42,6 +42,10 @@ STOCK_ACT_DEADLINE_DAYS = 45
 CLUSTER_WINDOW_DAYS = 30
 EARNINGS_WINDOW_DAYS = 14
 MAX_SAME_FILING_ITEMS = 8
+# A member who files 98 trades at once (Ro Khanna, Oct 2026) would otherwise
+# send 98 messages: past this many in one filing, one summary goes out instead.
+BATCH_MIN_TRADES = 4
+BATCH_LIST_ITEMS = 12
 
 
 def _e(value) -> str:
@@ -360,6 +364,39 @@ def _format_alert(db, trade: Trade) -> str:
     return "\n\n".join(sections)
 
 
+def _summary_alert(db, trades: list[Trade], watched_tickers: set[str]) -> str:
+    """One message for a big filing: counts, the largest trades, anything on
+    the chat's ticker watchlist, and the links."""
+    first = trades[0]
+    member = db.query(Member).filter_by(match_key=first.member_match_key).one_or_none()
+    buys = [t for t in trades if t.transaction_type == "purchase"]
+    sells = [t for t in trades if t.transaction_type == "sale"]
+    lo = sum(_trade_value(t) for t in trades)
+    lines = [
+        f"🗂 <b>{len(trades)} OPERACIONES EN UN SOLO FILING</b>",
+        _member_line(first, member),
+        f"🟢 {len(buys)} compras · 🔴 {len(sells)} ventas · suma mínima declarada ${lo:,.0f}",
+        f"📨 Publicado: {first.disclosure_date or 'desconocido'}",
+    ]
+    hot = sorted({t.ticker for t in trades if t.ticker in watched_tickers})
+    if hot:
+        lines.append("⭐ <b>En tu watchlist:</b> " + ", ".join(f"${_e(t)}" for t in hot))
+    top = sorted(trades, key=lambda t: -_trade_value(t))[:BATCH_LIST_ITEMS]
+    lines.append("")
+    lines.append("<b>Las más grandes:</b>")
+    for t in top:
+        icon = "🟢" if t.transaction_type == "purchase" else "🔴"
+        star = " ⭐" if t.ticker in watched_tickers else ""
+        lines.append(f"{icon} ${_e(t.ticker)}{star} · {_format_amount(t.amount_range_low, t.amount_range_high)}")
+    if len(trades) > len(top):
+        lines.append(f"… y {len(trades) - len(top)} más")
+    links = [f'<a href="{SITE_URL}/members/{_e(first.member_match_key)}">Perfil</a>']
+    if first.filing_url:
+        links.append(f'<a href="{_e(first.filing_url)}">Filing original</a>')
+    lines += ["", " · ".join(links), "<i>Un filing grande suele ser rebalanceo o gestión de cartera, no una apuesta puntual</i>"]
+    return "\n".join(lines)
+
+
 def send_alerts() -> dict:
     stats = {"trades_checked": 0, "alerts_sent": 0}
     if not TELEGRAM_BOT_TOKEN:
@@ -372,23 +409,39 @@ def send_alerts() -> dict:
         pending = db.query(Trade).filter_by(notified=False).all()
         stats["trades_checked"] = len(pending)
 
+        # What each chat should hear about, per trade (an exchange ("canje")
+        # swaps one holding for another in a merger, spin-off or fund
+        # conversion: no decision to buy or sell, no signal).
+        wanted: dict[int, list[tuple[Trade, set[str]]]] = {}
         for trade in pending:
+            if trade.transaction_type == "exchange":
+                continue
             reasons_by_chat: dict[int, set[str]] = {}
             for w in db.query(TelegramWatch).filter_by(watch_type="member", value=trade.member_match_key).all():
                 reasons_by_chat.setdefault(w.chat_id, set()).add("member")
             for w in db.query(TelegramWatch).filter_by(watch_type="ticker", value=trade.ticker).all():
                 reasons_by_chat.setdefault(w.chat_id, set()).add("ticker")
+            for chat_id, reasons in reasons_by_chat.items():
+                wanted.setdefault(chat_id, []).append((trade, reasons))
 
-            # An exchange ("canje") swaps one holding for another in a merger,
-            # spin-off or fund conversion: no decision to buy or sell, no signal.
-            if trade.transaction_type == "exchange":
-                reasons_by_chat = {}
-            if reasons_by_chat:  # only pay for the price/ranking lookups if someone's watching
-                body = _format_alert(db, trade)
-                for chat_id, reasons in reasons_by_chat.items():
-                    if send_message(chat_id, f"{body}\n\n{_reason_line(reasons, trade)}"):
+        bodies: dict[int, str] = {}  # price/ranking lookups only for trades that get sent
+        for chat_id, items in wanted.items():
+            groups: dict[tuple, list[tuple[Trade, set[str]]]] = {}
+            for trade, reasons in items:
+                groups.setdefault((trade.member_match_key, trade.filing_url or trade.disclosure_date), []).append((trade, reasons))
+            watched = {w.value.upper() for w in db.query(TelegramWatch).filter_by(chat_id=chat_id, watch_type="ticker")}
+            for group in groups.values():
+                if len(group) >= BATCH_MIN_TRADES:
+                    if send_message(chat_id, _summary_alert(db, [t for t, _ in group], watched)):
+                        stats["alerts_sent"] += 1
+                    continue
+                for trade, reasons in group:
+                    if trade.id not in bodies:
+                        bodies[trade.id] = _format_alert(db, trade)
+                    if send_message(chat_id, f"{bodies[trade.id]}\n\n{_reason_line(reasons, trade)}"):
                         stats["alerts_sent"] += 1
 
+        for trade in pending:
             trade.notified = True
 
         db.commit()
