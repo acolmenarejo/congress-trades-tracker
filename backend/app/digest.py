@@ -110,7 +110,8 @@ def signal_lines(db: Session) -> list[str]:
 SECTIONS = [congress_lines, insider_lines]
 
 
-def build(db: Session, now: datetime | None = None) -> str:
+def build_full(db: Session, now: datetime | None = None) -> str:
+    """The long digest (/resumen completo)."""
     now = now or datetime.utcnow()
     since = now - timedelta(hours=24)
     days = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
@@ -130,6 +131,132 @@ def build(db: Session, now: datetime | None = None) -> str:
     lines.append(f'🔗 <a href="{WEB}">Web</a> · <a href="{WEB}/watchlist">Watchlist</a> · '
                  f'<a href="{WEB}/macro">Macro</a> · <a href="{WEB}/directivos">Directivos</a>')
     lines.append("<i>Las alertas instantáneas llegan aparte · /resumen para pedirlo</i>")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- executive digest
+
+BRIEF_MAX_TICKERS = 5
+BRIEF_MAX_MEMBERS = 3
+BRIEF_MAX_SIGNALS = 3
+
+
+def _mine(db: Session, chat_id: int | None) -> tuple[set[str], set[str]]:
+    """(tickers, member match keys) this chat watches; everything when chat_id is None."""
+    q = db.query(TelegramWatch)
+    if chat_id is not None:
+        q = q.filter_by(chat_id=chat_id)
+    rows = q.all()
+    return ({w.value.upper() for w in rows if w.watch_type == "ticker"},
+            {w.value for w in rows if w.watch_type == "member"})
+
+
+def _my_tickers(db: Session, tickers: set[str], since: datetime) -> list[str]:
+    """One line per watched ticker that had news; quiet ones are not listed."""
+    from . import alert_context
+
+    out = []
+    for tk in sorted(tickers):
+        bits = []
+        trades = db.query(Trade).filter(Trade.ticker == tk, Trade.created_at >= since,
+                                        Trade.transaction_type.in_(["purchase", "sale"])).all()
+        buys = sum(t.transaction_type == "purchase" for t in trades)
+        if buys:
+            bits.append(f"🟢 {buys} compra{'s' if buys > 1 else ''} del Congreso")
+        if len(trades) - buys:
+            bits.append(f"🔻 {len(trades) - buys} venta{'s' if len(trades) - buys > 1 else ''} del Congreso")
+        ins = db.query(InsiderTrade).filter(InsiderTrade.ticker == tk, InsiderTrade.detected_at >= since).count()
+        if ins:
+            bits.append(f"🏢 {ins} de directivos")
+        if db.query(SetupSignal).filter(SetupSignal.ticker == tk, SetupSignal.outcome.is_(None)).first():
+            bits.append("📈 señal abierta")
+        earn = alert_context.next_earnings(db, tk)
+        if earn and 0 <= (earn - now_date()).days <= 7:
+            bits.append(f"📅 resultados {earn:%d/%m}")
+        if bits:
+            out.append(f"  • {_tk(tk)}: " + " · ".join(bits))
+    return out[:BRIEF_MAX_TICKERS]
+
+
+def _my_members(db: Session, members: set[str], since: datetime) -> list[str]:
+    rows = (db.query(Trade).filter(Trade.member_match_key.in_(members), Trade.created_at >= since,
+                                   Trade.transaction_type.in_(["purchase", "sale"])).all()) if members else []
+    by: dict[str, list[Trade]] = {}
+    for t in rows:
+        by.setdefault(t.member_match_key, []).append(t)
+    out = []
+    for ts in sorted(by.values(), key=len, reverse=True)[:BRIEF_MAX_MEMBERS]:
+        buys = sum(t.transaction_type == "purchase" for t in ts)
+        if len(ts) > 4:
+            what = f"{len(ts)} operaciones ({buys} compras)"
+        else:
+            what = ", ".join(f"{'🟢' if t.transaction_type == 'purchase' else '🔻'}{_tk(t.ticker)}" for t in ts)
+        out.append(f"  • {e(ts[0].member_name)}: {what}")
+    return out
+
+
+def _insiders_brief(db: Session, since: datetime, mine: set[str]) -> list[str]:
+    from . import insiders
+
+    groups: dict[str, int] = {}
+    for t in db.query(InsiderTrade).filter(InsiderTrade.detected_at >= since).all():
+        if insiders.should_alert(db, t)[0]:
+            groups[t.ticker] = groups.get(t.ticker, 0) + 1
+    if not groups:
+        return []
+    top = sorted(groups, key=lambda tk: (tk not in mine, -groups[tk]))[:4]
+    more = len(groups) - len(top)
+    return ["🏢 <b>Directivos comprando:</b> " + ", ".join(_tk(tk) for tk in top) + (f" y {more} más" if more > 0 else "")]
+
+
+def _signals_brief(db: Session, mine: set[str]) -> list[str]:
+    from . import prices, setups
+
+    open_ = db.query(SetupSignal).filter(SetupSignal.outcome.is_(None)).all()
+    open_.sort(key=lambda s: (s.ticker not in mine, -(s.score or 0)))
+    out = []
+    for s in open_[:BRIEF_MAX_SIGNALS]:
+        res = setups.evaluate_signal(prices.get_price_series(db, s.ticker, s.signal_date - timedelta(days=5), date.today()), s)
+        ret = f"{res['return_pct']:+.1f}%" if res["return_pct"] is not None else "?"
+        out.append(f"  • {_tk(s.ticker)} {ret} · obj {setups._fmt_price(s.target)} · stop {setups._fmt_price(s.stop)}")
+    return (["📈 <b>Señales abiertas:</b>"] + out) if out else []
+
+
+def _polymarket_brief(db: Session, since: datetime) -> list[str]:
+    from . import polymarket
+
+    r = (db.query(polymarket.PolymarketAlert)
+         .filter(polymarket.PolymarketAlert.detected_at >= since, polymarket.PolymarketAlert.score >= 75)
+         .order_by(polymarket.PolymarketAlert.score.desc()).first())
+    if not r:
+        return []
+    return [f"🎯 <b>Apuesta muy rara:</b> {polymarket._usd(r.size_usd)} a «{e(r.outcome)}» en {e(r.market_question[:70])}"]
+
+
+def build(db: Session, chat_id: int | None = None, now: datetime | None = None) -> str:
+    """Executive digest for one chat: only what touches their list, then one
+    line each for the rest. The long version is build_full (/resumen completo)."""
+    from . import macro
+
+    now = now or datetime.utcnow()
+    since = now - timedelta(hours=24)
+    days = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+    tickers, members = _mine(db, chat_id)
+    lines = [f"☀️ <b>Resumen</b> · {days[now.weekday()]} {now:%d/%m}", ""]
+    mine_lines = _my_tickers(db, tickers, since) + _my_members(db, members, since)
+    if mine_lines:
+        lines += ["⭐ <b>Tu lista</b>"] + mine_lines + [""]
+    else:
+        lines += ["⭐ Sin novedades en tu lista.", ""]
+    for part in (lambda: _insiders_brief(db, since, tickers), lambda: _signals_brief(db, tickers),
+                 lambda: macro.brief_lines(db), lambda: _polymarket_brief(db, since)):
+        try:
+            got = part()
+            if got:
+                lines += got
+        except Exception:
+            logger.exception("digest: brief section failed")
+    lines += ["", f'🔗 <a href="{WEB}">Web</a> · /resumen completo']
     return "\n".join(lines)
 
 
@@ -205,9 +332,8 @@ def maybe_send(db: Session, now: datetime | None = None) -> bool:
     st = db.get(TelegramState, STATE_KEY)
     if now.hour < DIGEST_HOUR_UTC or (st and st.value == today) or not TELEGRAM_BOT_TOKEN:
         return False
-    body = build(db, now)
     for s in db.query(TelegramSubscriber).all():
-        for part in split_message(body):
+        for part in split_message(build(db, s.chat_id, now)):
             send_message(s.chat_id, part)
     db.merge(TelegramState(key=STATE_KEY, value=today))
     db.commit()
