@@ -11,6 +11,14 @@ wide books (spread > 10 points), thin ones (< 500 contracts open) and the
 weekly fuel series altogether. Both the mid and the last trade must have
 moved, so one stray print is not enough.
 
+Monthly data (CPI, PCE, jobs, GDP): while the previous month's figure is
+about to come out, next month's market swings with the run-up to it, so it
+is held (RELEASE_SERIES). On 2026-10-14 "CPI in October" fell 59% -> 40% an
+hour before September's CPI came out hot, the alert said "less inflation"
+and quoted a September preview as the cause. Headlines naming another month
+are now shown as the previous figure, not as news about this one, and the
+message says when this figure comes out.
+
 One message per event (all strikes of "Domino's same-store sales in Q3" are
 one question), at most once every 3 days per event (TelegramState[SENT_KEY];
 it used to be per strike, so a neighbouring strike re-sent the same story),
@@ -38,6 +46,13 @@ MAX_SPREAD = 0.10
 MAX_PER_RUN = 4
 COOLDOWN = timedelta(days=3)
 SKIP_SERIES = {"KXAAAGASW", "KXDIESELW"}
+RELEASE_SERIES = {"KXCPI", "KXCPICOREYOY", "KXCPICOMBO", "KXPCEHEAD", "KXPAYROLLS", "KXU3", "KXGDP",
+                  "KXOER", "KXSHELTERCPI"}
+_MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september",
+           "october", "november", "december"]
+# Full names or exact abbreviations ("mar" alone, not "market"); no "may".
+_MONTH_RE = re.compile(r"\b(january|february|march|april|june|july|august|september|october|november|december|"
+                       r"jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b", re.I)
 
 e = ctx.e
 
@@ -110,6 +125,11 @@ def moves(events: list[dict], company: dict[str, list[dict]]) -> list[dict]:
     for every market that moved."""
     now = datetime.now(timezone.utc)
     rows, seen = [], set()
+    # A monthly series whose earlier event resolves within 3 days: the
+    # previous figure is about to come out (or just did) and moves the rest.
+    releasing = {ev.get("series_ticker") for ev in events
+                 if ev.get("series_ticker") in RELEASE_SERIES
+                 and any(_closes_soon(m.get("close_time"), now) for m in ev.get("markets") or [])}
 
     def check(m: dict, title: str, url: str, stock: str | None, series: str, ev_oi: float):
         if m["ticker"] in seen or m["p"] is None or m["prev"] is None or m["last"] is None:
@@ -126,7 +146,7 @@ def moves(events: list[dict], company: dict[str, list[dict]]) -> list[dict]:
 
     for ev in events:
         series = ev.get("series_ticker") or ""
-        if series in SKIP_SERIES:
+        if series in SKIP_SERIES or series in releasing:
             continue
         url = f"https://kalshi.com/markets/{series.lower()}"
         mk = [_market(raw) for raw in ev.get("markets") or []]
@@ -147,6 +167,27 @@ def _macro_info(series: str):
         if series.startswith(prefixes):
             return query, core, info
     return None, False, None
+
+
+def _month_of(text: str) -> int | None:
+    m = _MONTH_RE.search(text or "")
+    return [x[:3] for x in _MONTHS].index(m.group(1)[:3].lower()) if m else None
+
+
+def _split_by_month(items: list[dict] | None, title: str) -> tuple[list[dict] | None, dict | None]:
+    """(headlines about this event's month or none in particular, first one
+    about another month): a September CPI preview is not news about October."""
+    month = _month_of(title)
+    if items is None or month is None:
+        return items, None
+    same, other = [], None
+    for x in items:
+        months = {_month_of(w) for w in _MONTH_RE.findall(x["title"])}
+        if months and month not in months:
+            other = other or x
+        else:
+            same.append(x)
+    return same, other
 
 
 def _yes_means_higher(label: str) -> bool:
@@ -236,7 +277,14 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
         items = ctx.news(query) if query else None
         if items:  # "readers find the silver lining in high fuel prices" is not a cause
             items = [x for x in items if _MACRO_NEWS.search(x["title"])]
-    nl, has_news = ctx.news_lines(items)
+    other = None
+    if not stock and r["series"] in RELEASE_SERIES:
+        items, other = _split_by_month(items, r["title"])
+    if other and not items:
+        nl, has_news = [f"📰 Solo hay noticias del dato de otro mes («{e(other['title'][:120])}»): "
+                        "este mercado es el siguiente dato, no el que sale ahora. No es información nueva sobre él."], True
+    else:
+        nl, has_news = ctx.news_lines(items)
     points = abs(r["p"] - r["prev"]) * 100
     level = ctx.impact(points, r["ev_oi"], watched, _days_to(r["close"], now), core)
     arrow = "⬆️" if r["p"] > r["prev"] else "⬇️"
@@ -251,6 +299,12 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
     if others:
         lines.append(f"   (y {others} {'escalones' if others > 1 else 'escalón'} más del mismo dato)")
     lines.append(f"💰 {r['ev_oi']:,.0f} contratos abiertos".replace(",", "."))
+    if not stock and r["series"] in RELEASE_SERIES and r["close"]:
+        try:
+            when = datetime.fromisoformat(r["close"].replace("Z", "+00:00"))
+            lines.append(f"📅 Este dato se publica hacia el {when:%d/%m}.")
+        except ValueError:
+            pass
     lines.append("")
     lines += nl
     lines += _company_block(db, r, watched, has_news, level) if stock else _macro_block(db, r, info, wl, has_news, level)
