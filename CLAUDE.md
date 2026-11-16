@@ -287,6 +287,17 @@ y revisión general de mejoras de frontend.
 - `tools/compact_db.py` (en `rankings.yml`): `price_cache` es WITHOUT ROWID y
   se hace VACUUM si sobra > 10%. La DB bajó de 51 a 37 MB; avisa pasados 80 MB
   (GitHub rechaza ficheros de > 100 MB).
+- Correos de GitHub (2026-11-16): cada ejecución cancelada o fallida manda un
+  correo al dueño. `bot-poll.yml` ya no usa `concurrency` (cancelaba ~la mitad
+  de las ejecuciones): si hay otra más antigua activa, sale como éxito. Todos
+  los workflows suben la DB con `backend/tools/push_db.sh` (reintenta y, si
+  choca con otro push, rehace solo sus tablas con `merge_tables.py`; `!tabla`
+  = reemplazar, para bajas del bot). Antes `ingest`/`earnings`/`rankings`
+  fallaban ~1 de cada 3 por conflicto en el binario.
+- Avisos sin noticia (2026-11-16): Polymarket (`explaining_news`) y Kalshi
+  (`kalshi_watch.notify`) solo mandan Telegram si ningún titular de 48 h
+  explica el movimiento; si lo hay, queda en la web/resumen (en Polymarket se
+  añade la noticia a `reasons`). Si el feed falla se envía igual.
 - Columnas nuevas en tablas existentes: añadirlas a `database._ADDED_COLUMNS`
   (SQLite no las crea con `create_all`).
 

@@ -22,9 +22,10 @@ message says when this figure comes out.
 One message per event (all strikes of "Domino's same-store sales in Q3" are
 one question), at most once every 3 days per event (TelegramState[SENT_KEY];
 it used to be per strike, so a neighbouring strike re-sent the same story),
-and at most MAX_PER_RUN messages per run. Each message says whether a
-headline explains the move, how much it matters (alto/medio/bajo) and what
-it means for the watchlist (app/alert_context.py).
+and at most MAX_PER_RUN messages per run. Since 2026-11-16 only moves no
+headline explains are sent (a headline means the market is just reacting).
+Each message says how much it matters (alto/medio/bajo) and what it means
+for the watchlist (app/alert_context.py).
 """
 import json
 import logging
@@ -265,7 +266,9 @@ def _macro_block(db: Session, r: dict, info: dict | None, wl: set[str], has_news
     return lines + ["🎯 <b>Qué hacer:</b>"] + [f"  • {a}" for a in act]
 
 
-def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
+def message(db: Session, r: dict, others: int, wl: set[str]) -> tuple[str, bool | None]:
+    """The alert text, and whether a headline explains the move (None = the
+    news feed could not be read)."""
     now = datetime.now(timezone.utc)
     stock = r["stock"]
     watched = bool(stock and stock in wl)
@@ -311,7 +314,7 @@ def message(db: Session, r: dict, others: int, wl: set[str]) -> str:
     links = [f'<a href="{e(r["url"])}">Kalshi</a>']
     links.insert(0, ctx.ticker_link(stock) if stock else f'<a href="{ctx.WEB}/macro">página Macro</a>')
     lines += ["", "🔗 " + " · ".join(links), "<i>Pista, no recomendación: en Kalshi hay poco dinero detrás.</i>"]
-    return "\n".join(lines)
+    return "\n".join(lines), has_news
 
 
 def notify(db: Session, events: list[dict], company: dict[str, list[dict]]) -> int:
@@ -327,14 +330,25 @@ def notify(db: Session, events: list[dict], company: dict[str, list[dict]]) -> i
     sent = {k: v for k, v in sent.items() if datetime.fromisoformat(v) > now - COOLDOWN}
     blocked = set(sent) | {_event_of(k) for k in sent}  # old entries were per strike
     by_event: dict[str, list[dict]] = {}
+    # Moves explained by a headline are not sent (Peter, 2026-11-15: too many
+    # messages; the useful one is the move nobody has explained yet). They
+    # get no cooldown either, so a later unexplained move still alerts.
     for r in moves(events, company):
         if r["event"] not in blocked and r["ticker"] not in blocked:
             by_event.setdefault(r["event"], []).append(r)
     wl = ctx.watchlist(db)
     # Watchlist first, then the biggest moves.
     ranked = sorted(by_event.values(), key=lambda rs: (rs[0]["stock"] not in wl, -max(abs(x["p"] - x["prev"]) for x in rs)))
-    picked = ranked[:MAX_PER_RUN]
-    for rs in picked:
+    picked = []
+    for rs in ranked:
+        if len(picked) >= MAX_PER_RUN:
+            break
+        best = max(rs, key=lambda x: abs(x["p"] - x["prev"]))
+        text, has_news = message(db, best, len(rs) - 1, wl)
+        if has_news:
+            logger.info("kalshi_watch: %s explained by news, not sent", rs[0]["event"])
+            continue
+        picked.append((rs, best, text))
         sent[rs[0]["event"]] = now.isoformat()
     db.merge(TelegramState(key=SENT_KEY, value=json.dumps(sent)))
     db.commit()
@@ -342,9 +356,7 @@ def notify(db: Session, events: list[dict], company: dict[str, list[dict]]) -> i
         return 0
     chats = [s.chat_id for s in db.query(TelegramSubscriber).all()] if TELEGRAM_BOT_TOKEN else []
     n = 0
-    for rs in picked:
-        best = max(rs, key=lambda x: abs(x["p"] - x["prev"]))
-        text = message(db, best, len(rs) - 1, wl)
+    for rs, best, text in picked:
         n += sum(send_message(c, text) for c in chats)
         # The move points to YES if the price rose; settles when the market resolves.
         alert_track.record(db, f"kalshi:{best['ticker']}", "kalshi", best["p"], best["title"], ticker=best["ticker"],
