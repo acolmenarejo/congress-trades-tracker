@@ -385,7 +385,48 @@ def _usd(x: float | None) -> str:
     return f"${x / 1e6:,.1f}M" if x >= 1e6 else f"${x / 1e3:,.0f}k"
 
 
+# Words that say nothing about the topic of "Will the Fed cut rates by 50 bps
+# after the December 2026 meeting?" when searching the news for it.
+_STOP = set(
+    "will would could does have been with that this what which when where than then into from over under "
+    "after before above below between during least more most less other there their they about again "
+    "following announce announced reach reaches market price end year month week day happen the".split()
+)
+
+
+def news_query(question: str) -> str:
+    """Up to 5 topic words of a market question, for a Google News search."""
+    words = [w for w in re.findall(r"\b[A-Z]{2}\b|[A-Za-z][A-Za-z.&'-]{2,}", question or "") if w.lower() not in _STOP]
+    words = [w for w in words if not re.fullmatch(r"(?i)jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|"
+                                                     r"january|february|march|april|june|july|august|september|"
+                                                     r"october|november|december", w)]
+    caps = [w for w in words if w[0].isupper()]
+    rest = [w for w in words if not w[0].isupper()]
+    return " ".join((caps + rest)[:5])
+
+
+def explaining_news(a: PolymarketAlert) -> dict | None:
+    """The newest headline (48 h) about this bet's market, or None if there is
+    none or the feed failed: a bet nobody has explained yet is the one worth
+    a Telegram message (Peter, 2026-11-15)."""
+    from . import alert_context as ctx
+
+    q = news_query(a.market_question)
+    words = q.split()
+    if len(words) < 2:  # "tariffs" alone matches every day's news
+        return None
+    need = 2 if len(words) < 4 else 3
+    for it in ctx.news(q) or []:
+        title = it["title"].lower()
+        if sum(bool(re.search(rf"\b{re.escape(w.lower()[:5])}", title)) for w in words) >= need:  # the headline itself is on topic
+            return it
+    return None
+
+
 def notify(db: Session) -> int:
+    """Telegram only for bets no headline explains yet: with a headline in the
+    last 48 h the bet is most likely a reaction to it, not inside knowledge.
+    Those stay on the web and in the daily digest, with the headline noted."""
     from .config import TELEGRAM_BOT_TOKEN
     from .models import TelegramSubscriber
     from .telegram_api import send_message
@@ -395,8 +436,14 @@ def notify(db: Session) -> int:
     sent = 0
     for a in pending:
         if should_alert(a) and chats and sent < MAX_ALERTS_PER_RUN * len(chats):
-            sent += sum(send_message(c, format_alert(a)) for c in chats)
-            alert_track.mark_alerted(db, a.tx_hash)
+            hit = explaining_news(a)
+            if hit:
+                note = f"Hay noticia (48 h): {hit['title'][:120]}"
+                a.reasons = " | ".join(x for x in [a.reasons, note] if x)
+                logger.info("polymarket: not alerting %s, explained by %r", a.tx_hash, hit["title"])
+            else:
+                sent += sum(send_message(c, format_alert(a)) for c in chats)
+                alert_track.mark_alerted(db, a.tx_hash)
         a.notified = True
     db.commit()
     return sent

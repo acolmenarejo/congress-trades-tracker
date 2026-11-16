@@ -32,10 +32,7 @@ jobs:
         run: python backend/tools/compact_db.py
 
       - name: Commit updated database
+        # Retries and, on a clash with another workflow's push, re-applies only
+        # the tables this workflow owns (a binary SQLite can't be rebased).
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add backend/data/congress_trades.db
-          git diff --cached --quiet && echo "No changes to commit" || git commit -m "chore: refresh trader rankings [skip ci]"
-          git pull --rebase --autostash
-          git push
+          backend/tools/push_db.sh "chore: refresh trader rankings [skip ci]" member_rankings trade_returns price_cache

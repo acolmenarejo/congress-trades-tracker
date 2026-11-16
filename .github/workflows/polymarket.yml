@@ -48,22 +48,7 @@ jobs:
         run: python scan_whale_bets.py ${HOURS:+--hours "$HOURS"}
 
       - name: Commit updated database
-        # Same retry/merge loop as insiders.yml: hourly now, so it races the
-        # other workflows pushing the SQLite more often.
+        # Retries and, on a clash with another workflow's push, re-applies only
+        # the tables this workflow owns (a binary SQLite can't be rebased).
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          DB=backend/data/congress_trades.db
-          for attempt in 1 2 3 4 5; do
-            git add $DB
-            git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
-            git commit -q -m "chore: refresh polymarket suspicious bets [skip ci]"
-            if git pull --rebase -q && git push -q; then exit 0; fi
-            git rebase --abort 2>/dev/null || true
-            cp $DB /tmp/ours.db
-            git fetch -q origin master
-            git reset -q --hard origin/master
-            python backend/tools/merge_tables.py /tmp/ours.db $DB polymarket_alerts "alert_outcomes:source IN ('polymarket','kalshi')" "macro_points:series LIKE 'PM_%' OR series LIKE 'KS_%'" "telegram_state:key LIKE 'polymarket%' OR key LIKE 'kalshi%'"
-            sleep $((attempt * 5))
-          done
-          exit 1
+          backend/tools/push_db.sh "chore: refresh polymarket suspicious bets [skip ci]" polymarket_alerts "alert_outcomes:source IN ('polymarket','kalshi')" "macro_points:series LIKE 'PM_%' OR series LIKE 'KS_%'" "telegram_state:key LIKE 'polymarket%' OR key LIKE 'kalshi%'"

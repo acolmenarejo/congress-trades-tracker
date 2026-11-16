@@ -6,7 +6,9 @@ binary SQLite can't be rebased, so they reset to the remote DB and re-apply
 only the tables they own.
 
 Usage:
-    python merge_tables.py SRC.db DEST.db TABLE[:WHERE] [TABLE[:WHERE] ...]
+    python merge_tables.py SRC.db DEST.db [!]TABLE[:WHERE] [[!]TABLE[:WHERE] ...]
+A leading "!" first deletes the matching rows in DEST, so rows deleted on
+our side stay deleted (bot unsubscribes); without it rows are only upserted.
 e.g.
     python merge_tables.py /tmp/ours.db data/congress_trades.db insider_trades "telegram_state:key LIKE 'insiders%'"
 """
@@ -18,7 +20,8 @@ def main(src: str, dest: str, specs: list[str]) -> None:
     con = sqlite3.connect(dest)
     con.execute("ATTACH DATABASE ? AS src", (src,))
     for spec in specs:
-        table, _, where = spec.partition(":")
+        replace = spec.startswith("!")
+        table, _, where = spec.lstrip("!").partition(":")
         row = con.execute("SELECT sql FROM src.sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
         if row is None:
             continue
@@ -33,6 +36,8 @@ def main(src: str, dest: str, specs: list[str]) -> None:
         for c in src_cols:  # a newer schema on our side (see database._ADDED_COLUMNS)
             if c[1] not in have:
                 con.execute(f'ALTER TABLE main."{table}" ADD COLUMN "{c[1]}" {c[2]}')
+        if replace:
+            con.execute(f'DELETE FROM main."{table}"' + (f" WHERE {where}" if where else ""))
         cols = ", ".join(f'"{c[1]}"' for c in src_cols)
         sql = f'INSERT OR REPLACE INTO main."{table}" ({cols}) SELECT {cols} FROM src."{table}"'
         n = con.execute(sql + (f" WHERE {where}" if where else "")).rowcount
